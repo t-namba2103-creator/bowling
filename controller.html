@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ボウリング リモコン</title>
+<style>
+  /* スマホのリモコン画面（仮デザイン）。片手で持って大きなボタンを親指で押す想定 */
+  :root { --bg: #0f1222; --panel: #191d36; --line: #2c3263; --fg: #f2f4ff; --muted: #a0a7d0; --accent: #ffcc33; --good: #44e08f; --bad: #ff5b72;
+    --font: "Hiragino Maru Gothic ProN", "Yu Gothic", "Meiryo", sans-serif; color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font); user-select: none; -webkit-user-select: none; overscroll-behavior: none;
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+  main { height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; gap: 10px; max-width: 520px; margin: 0 auto; }
+  .status { display: flex; justify-content: space-between; align-items: center; font-size: .85rem; color: var(--muted); }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); margin-right: 6px; vertical-align: middle; }
+  .dot.on { background: var(--good); }
+  .state { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 1rem; min-height: 3em; }
+  .hold { touch-action: none; border: 0; border-radius: 24px; font: inherit; font-size: 1.3rem; font-weight: 800; color: #241a00; background: var(--accent);
+    display: grid; place-items: center; text-align: center; padding: 16px; line-height: 1.5; min-height: 220px; }
+  .hold small { display: block; font-size: .85rem; font-weight: 400; }
+  .hold.holding { background: #ff9d2e; transform: scale(.98); }
+  .hold:disabled { background: #3a3f6b; color: var(--muted); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn { border: 1px solid var(--line); border-radius: 14px; padding: 14px; font: inherit; font-size: 1.1rem; font-weight: 700; background: #232953; color: var(--fg); touch-action: manipulation; }
+  .btn.small { font-size: .85rem; padding: 10px; }
+  .btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+  .note { color: var(--muted); font-size: .78rem; margin: 0; text-align: center; }
+  .last { color: var(--muted); font-size: .85rem; text-align: center; min-height: 1.3em; }
+</style>
+</head>
+<body>
+<main>
+  <div class="status"><span><span class="dot" id="dot"></span><span id="conn">接続中…</span></span><span id="who"></span></div>
+  <div class="state" id="state">PCとつないでいます…</div>
+  <button class="hold" id="hold" disabled>
+    <span>押したまま腕を振って<br>指を離すと投げる<small>強く振るほど速い ・ 離す瞬間に手首をひねるとカーブ</small></span>
+  </button>
+  <div style="display:grid; gap:10px">
+    <div class="last" id="last"></div>
+    <div class="row"><button class="btn" id="left">◀ 左へ</button><button class="btn" id="right">右へ ▶</button></div>
+    <div class="row">
+      <button class="btn small" id="sensorBtn">センサーを有効にする</button>
+      <button class="btn small" id="startBtn">スタート / もう一回</button>
+    </div>
+    <div class="row">
+      <button class="btn small" id="invertBtn" aria-pressed="false">カーブの向きを反転</button>
+      <button class="btn small" id="testBtn">振りの強さを確認</button>
+    </div>
+    <p class="note">ストラップに手首を通してから振ってください。周りに人がいないか確認しましょう。</p>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+// --- pure:start（スマホの動きのデータから、投げた強さとカーブを計算する） ---
+// samples: [{t, r:{alpha,beta,gamma}（回転の速さ 度/秒） | null, a:{x,y,z}（重力込みの加速度） | null}]
+// 指を離した時刻 tRel の直前の振りを見る。回転の速さ（ジャイロ）が使えればそれを、なければ加速度を使う
+function analyzeSwing(samples, tRel, invert = false) {
+  const win = samples.filter((s) => s.t <= tRel && s.t >= tRel - 250);
+  const spinWin = samples.filter((s) => s.t <= tRel && s.t >= tRel - 150);
+  if (win.length < 3) return { ok: false, reason: "振りを読み取れませんでした（センサーが有効か確認）" };
+  const gyro = win.some((s) => s.r && (s.r.alpha != null || s.r.beta != null));
+  let speedRaw, speed01;
+  if (gyro) {
+    speedRaw = Math.max(...win.map((s) => Math.hypot(s.r.alpha || 0, s.r.beta || 0, s.r.gamma || 0)));
+    speed01 = Math.min(1, Math.max(0, (speedRaw - 150) / 650));
+  } else {
+    speedRaw = Math.max(...win.map((s) => (s.a ? Math.abs(Math.hypot(s.a.x || 0, s.a.y || 0, s.a.z || 0) - 9.8) : 0)));
+    speed01 = Math.min(1, Math.max(0, (speedRaw - 4) / 20));
+  }
+  if (speed01 <= 0) return { ok: false, reason: "もう少し強く振ってください", speedRaw };
+  // カーブ: 離す瞬間の手首のひねり（スマホの長い方の軸まわりの回転 = gamma）
+  const g = gyro && spinWin.length ? spinWin.reduce((m, s) => m + (s.r.gamma || 0), 0) / spinWin.length : 0;
+  let spin = Math.max(-1, Math.min(1, g / 450));
+  if (Math.abs(spin) < 0.08) spin = 0;
+  if (invert) spin = -spin;
+  return { ok: true, speed: speed01, spin, speedRaw, gyro };
+}
+// --- pure:end ---
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search), room = params.get("room");
+const samples = []; let holding = false, conn = null, canThrow = false;
+let invert = (() => { try { return localStorage.getItem("bowl-invert") === "1"; } catch { return false; } })();
+$("invertBtn").setAttribute("aria-pressed", String(invert));
+
+// ---- センサー ----
+function onMotion(e) {
+  samples.push({ t: performance.now(), r: e.rotationRate ? { alpha: e.rotationRate.alpha, beta: e.rotationRate.beta, gamma: e.rotationRate.gamma } : null,
+    a: e.accelerationIncludingGravity ? { x: e.accelerationIncludingGravity.x, y: e.accelerationIncludingGravity.y, z: e.accelerationIncludingGravity.z } : null });
+  while (samples.length && samples[0].t < performance.now() - 1500) samples.shift();
+}
+let sensorOn = false;
+async function enableSensor() {
+  try {
+    // iPhone は、ボタンを押したときに許可を求める必要がある
+    if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+      const r = await DeviceMotionEvent.requestPermission();
+      if (r !== "granted") { $("last").textContent = "動きのセンサーが許可されませんでした。設定から許可してください"; return; }
+    }
+    if (!window.isSecureContext) { $("last").textContent = "このページは https で開かれていないため、センサーが使えない可能性があります"; }
+    if (!sensorOn) { window.addEventListener("devicemotion", onMotion); sensorOn = true; }
+    $("sensorBtn").textContent = "センサー有効"; $("sensorBtn").disabled = true;
+    try { await navigator.wakeLock?.request("screen"); } catch { /* 画面が消えないようにする（できなくても遊べる） */ }
+  } catch (e) { $("last").textContent = "センサーを有効にできませんでした: " + e.message; }
+}
+$("sensorBtn").addEventListener("click", enableSensor);
+
+// ---- 投げる（押している間ボールを持つ、離すと投げる） ----
+const hold = $("hold");
+hold.addEventListener("pointerdown", (e) => {
+  if (!canThrow) return;
+  if (!sensorOn) enableSensor();
+  holding = true; hold.classList.add("holding"); hold.setPointerCapture?.(e.pointerId); navigator.vibrate?.(15);
+});
+function release() {
+  if (!holding) return; holding = false; hold.classList.remove("holding");
+  const r = analyzeSwing(samples, performance.now(), invert);
+  if (!r.ok) { $("last").textContent = r.reason; navigator.vibrate?.([30, 40, 30]); return; }
+  send({ t: "throw", speed: r.speed, spin: r.spin });
+  $("last").textContent = `強さ ${Math.round(r.speed * 100)}% ・ カーブ ${r.spin > 0 ? "右" : r.spin < 0 ? "左" : "なし"}`;
+  navigator.vibrate?.(40);
+}
+hold.addEventListener("pointerup", release); hold.addEventListener("pointercancel", release);
+$("left").addEventListener("click", () => send({ t: "aim", d: -1 }));
+$("right").addEventListener("click", () => send({ t: "aim", d: 1 }));
+$("startBtn").addEventListener("click", () => { enableSensor(); send({ t: "start" }); });
+$("invertBtn").addEventListener("click", () => { invert = !invert; $("invertBtn").setAttribute("aria-pressed", String(invert)); try { localStorage.setItem("bowl-invert", invert ? "1" : "0"); } catch { /* 保存できなくても使える */ } });
+$("testBtn").addEventListener("click", () => { const r = analyzeSwing(samples, performance.now(), invert); $("last").textContent = r.speedRaw != null ? `直前の振り: ${Math.round(r.speedRaw)}（${r.gyro ? "回転 度/秒" : "加速度"}）` : r.reason; });
+
+// ---- PC とつなぐ ----
+function peerOptions() {
+  const o = { debug: 0 };
+  if (params.get("peerHost")) Object.assign(o, { host: params.get("peerHost"), port: Number(params.get("peerPort") || 443), path: params.get("peerPath") || "/", secure: params.get("peerSecure") !== "0" });
+  return o;
+}
+function setConn(on, text) { $("dot").classList.toggle("on", on); $("conn").textContent = text; }
+function send(m) { try { conn?.open && conn.send(m); } catch { /* 切れていたら無視 */ } }
+function connect() {
+  if (!room) { setConn(false, "部屋番号がありません"); $("state").textContent = "PCの画面のQRコードから開いてください"; return; }
+  if (typeof Peer === "undefined") { setConn(false, "通信の部品を読み込めませんでした"); return; }
+  const peer = new Peer(undefined, peerOptions());
+  peer.on("open", () => {
+    conn = peer.connect(room, { reliable: true });
+    conn.on("open", () => { setConn(true, "PCと接続中"); send({ t: "hello" }); });
+    conn.on("data", (d) => {
+      if (d?.t !== "state") return;
+      $("state").textContent = d.text; canThrow = !!d.canThrow; hold.disabled = !canThrow; $("who").textContent = d.you || "";
+    });
+    conn.on("close", () => { setConn(false, "切断されました（再読み込みでつなぎ直し）"); hold.disabled = true; canThrow = false; });
+  });
+  peer.on("error", (e) => setConn(false, e.type === "peer-unavailable" ? "PCが見つかりません（PCの画面を確認）" : `接続エラー: ${e.type}`));
+}
+connect();
+window.ctrlTest = { analyzeSwing, samples, state: () => ({ canThrow, connected: !!conn?.open, sensorOn }) };
+</script>
+</body>
+</html>
