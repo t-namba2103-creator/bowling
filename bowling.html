@@ -357,7 +357,24 @@ function createThrowDetector(o = {}) {
   };
 }
 // カメラ映像の中の立ち位置（腰の位置）→ レーン上の立ち位置(m)
-const aimFromBody = (pelvisX, W) => clamp((pelvisX / W - 0.5) * 2 * 0.42, -0.42, 0.42);
+// 体の中心（横位置）: 肩と腰のうち、しっかり見えている点の平均。腰が画面外でも肩だけで決められる
+function bodyCenterX(s) {
+  const pts = [s.lSh, s.rSh, s.lHip, s.rHip].filter((p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5);
+  return pts.length ? pts.reduce((m, p) => m + p.x, 0) / pts.length : null;
+}
+// 映っている人の中から、遊んでいる人を選ぶ: 一番大きく（手前に）映っている人。
+// ただし前回の位置の近くにいて、それなりの大きさの人がいればその人を優先（後ろを通る人に飛ばないように）
+function pickPlayer(skels, prevX, W) {
+  const size = (s) => Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y);
+  const list = skels.filter((s) => bodyCenterX(s) != null);
+  if (!list.length) return null;
+  const maxSize = Math.max(...list.map(size));
+  const big = list.filter((s) => size(s) >= maxSize * 0.7);
+  if (prevX != null) { const near = big.filter((s) => Math.abs(bodyCenterX(s) - prevX) < W * 0.15); if (near.length) return near.sort((a, b) => size(b) - size(a))[0]; }
+  return big.sort((a, b) => size(b) - size(a))[0];
+}
+// 体の中心 → レーン上の立ち位置(m)。画面の中央60%の範囲でレーンの端から端まで動く（大きく動かなくても端まで届く）
+const aimFromBody = (cx, W) => clamp((cx / W - 0.5) / 0.3 * 0.42, -0.42, 0.42);
 function insertRank(list, entry, max = 10) {
   const next = [...list, entry].sort((a, b) => b.score - a.score || a.at - b.at).slice(0, max);
   return { list: next, place: next.indexOf(entry) };
@@ -583,14 +600,14 @@ function render(now) {
   }
   items.sort((a, b) => b.z - a.z).forEach((it) => it.draw());
   if (S.map && S.screen === "play") drawMiniMap(G.standing, fr && fr.pins.map((p) => !!(p && p.down)));
-  if (cam.skel && S.screen !== "result") drawCamPip();
+  if (cam.ready && (S.input === "camera" || S.input === "phone") && S.screen !== "result") drawCamPip(); // 見失ったときも「体が見えません」を出す
   if (air.cursor) { ctx.fillStyle = "rgba(255,204,51,.9)"; ctx.beginPath(); ctx.arc(air.cursor.x, air.cursor.y, 16, 0, Math.PI * 2); ctx.fill(); }
 }
 
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.target.closest("input")) goHome(); });
 
 // ---------- 入力: スマホ（PeerJS でつなぐ） ----------
-const phone = { peer: null, conns: [], room: null, error: null, gripping: false };
+const phone = { peer: null, conns: [], room: null, error: null, gripping: false, gripAt: 0 };
 function peerOptions() {
   // 自前の通信サーバーを使う場合は URL に ?peerHost=...&peerPort=...&peerPath=...&peerSecure=0 を付ける
   const o = { debug: 0 };
@@ -626,7 +643,7 @@ function onPhoneData(conn, d) {
   if (!d || typeof d !== "object") return;
   const idx = phone.conns.indexOf(conn);
   const mine = phone.conns.length < 2 || idx === G.cur;          // スマホ2台なら、自分の番のスマホだけ操作できる
-  if (d.t === "grip" && mine) { phone.gripping = !!d.on; }                                   // ボールを握っている間は立ち位置を固定
+  if (d.t === "grip" && mine) { phone.gripping = !!d.on; phone.gripAt = performance.now(); }                                   // ボールを握っている間は立ち位置を固定
   else if (d.t === "throw" && mine) {
     phone.gripping = false;
     if (!doThrow({ speed: clamp(Number(d.speed) || 0, 0, 1), spin: clamp(Number(d.spin) || 0, -1, 1) })) sendState();
@@ -669,7 +686,7 @@ async function startCamera(optional) {
     await video.play();
     const { FilesetResolver, PoseLandmarker } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs");
     const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-    const opts = { baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" }, runningMode: "VIDEO", numPoses: 1 };
+    const opts = { baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" }, runningMode: "VIDEO", numPoses: 2 }; // 2人まで探して、手前の人を選ぶ
     try { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "GPU" } }); }
     catch { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "CPU" } }); }
     cam.ready = true; cam.starting = false; say(""); startGame();
@@ -682,16 +699,25 @@ async function startCamera(optional) {
 function camSkel(lm, VW, VH) {
   const P = (i) => ({ x: (1 - lm[i].x) * VW, y: lm[i].y * VH, z: lm[i].z, v: lm[i].visibility ?? 1 });
   const s = { lSh: P(11), rSh: P(12), lWr: P(15), rWr: P(16), lHip: P(23), rHip: P(24) };
-  s.neck = { x: (s.lSh.x + s.rSh.x) / 2, y: (s.lSh.y + s.rSh.y) / 2 }; s.pelvis = { x: (s.lHip.x + s.rHip.x) / 2, y: (s.lHip.y + s.rHip.y) / 2, z: (s.lHip.z + s.rHip.z) / 2 };
+  s.neck = { x: (s.lSh.x + s.rSh.x) / 2, y: (s.lSh.y + s.rSh.y) / 2, v: Math.min(s.lSh.v, s.rSh.v) };
+  s.pelvis = { x: (s.lHip.x + s.rHip.x) / 2, y: (s.lHip.y + s.rHip.y) / 2, z: (s.lHip.z + s.rHip.z) / 2, v: Math.min(s.lHip.v, s.rHip.v) };
   return s;
 }
-function onCamPose(s, t, VW) {
-  cam.skel = s; cam.VW = VW;
-  if (!s) return;
-  // 立ち位置をカメラで決めるのはカメラモードのときだけ（他のモードで◀▶の操作を上書きしないように）。
-  // 投げる動作が始まったら固定する（振る勢いで体が動いて狙いがずれないように）
+// skels: 映っている人の骨格（0〜2人）。遊んでいる人を選び、少し見失っても0.4秒は直前の位置を保つ
+function onCamPose(skels, t, VW, VH) {
+  cam.VW = VW; cam.VH = VH;
+  const s = pickPlayer(skels || [], cam.cx, VW);
+  if (s) { cam.skel = s; cam.lastSeen = t; cam.cx = cam.cx == null ? bodyCenterX(s) : cam.cx * 0.5 + bodyCenterX(s) * 0.5; } // なめらかに追う
+  else if (t - (cam.lastSeen || 0) > 400) { cam.skel = null; cam.cx = null; }
+  // スマホで握ったまま通信が途切れたときに固定されたままにならないよう、4秒で解除
+  if (phone.gripping && t - phone.gripAt > 4000) phone.gripping = false;
+  // 投げる動作が始まったら（スマホで握ったら）立ち位置を固定する（振る勢いで体が動いて狙いがずれないように）
   const frozen = S.input === "camera" ? cam.det.armed() : phone.gripping;
-  if ((S.input === "camera" || S.input === "phone") && S.screen === "play" && G.phase === "aim" && !frozen) G.aim = aimFromBody(s.pelvis.x, VW);
+  if (cam.cx != null && (S.input === "camera" || S.input === "phone") && S.screen === "play" && G.phase === "aim" && !frozen) {
+    const target = aimFromBody(cam.cx, VW);
+    G.aim += (target - G.aim) * 0.35;
+  }
+  if (!s) return;
   const ev = cam.det.push(t, s);
   if (ev && S.input === "camera") doThrow({ speed: ev.speed, spin: ev.spin });
 }
@@ -699,19 +725,30 @@ function camTick(now) {
   if (!cam.ready || video.readyState < 2 || video.currentTime === cam.lastVT) return;
   cam.lastVT = video.currentTime;
   try { const t = Math.max(Math.round(now), cam.lastTs + 1); cam.lastTs = t; const r = cam.pose.detectForVideo(video, t);
-    onCamPose(r.landmarks[0] ? camSkel(r.landmarks[0], video.videoWidth, video.videoHeight) : null, now, video.videoWidth); } catch (e) { console.warn(e); }
+    onCamPose(r.landmarks.map((lm) => camSkel(lm, video.videoWidth, video.videoHeight)), now, video.videoWidth, video.videoHeight); } catch (e) { console.warn(e); }
 }
 function drawCamPip() {
-  const pw = 240, ph = 135, px = 14, py = H - ph - 14;
+  const VW = cam.VW || 1280, VH = cam.VH || 720;
+  const pw = 240, ph = Math.round(pw * VH / VW), px = 14, py = H - ph - 34;   // カメラの実際の縦横比で描く（4:3 のカメラでも骨格がずれない）
   ctx.save(); ctx.fillStyle = "#000"; ctx.fillRect(px, py, pw, ph);
   if (video.readyState >= 2) { ctx.translate(px + pw, py); ctx.scale(-1, 1); ctx.globalAlpha = .8; ctx.drawImage(video, 0, 0, pw, ph); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; }
-  const s = cam.skel, sx = (q) => px + q.x / (cam.VW || 1280) * pw, sy = (q) => py + q.y / ((cam.VW || 1280) * 9 / 16) * ph;
-  ctx.strokeStyle = "#ffcc33"; ctx.lineWidth = 3;
-  for (const [a, b] of [["lSh", "rSh"], ["lSh", "lWr"], ["rSh", "rWr"], ["lSh", "lHip"], ["rSh", "rHip"], ["lHip", "rHip"]]) { ctx.beginPath(); ctx.moveTo(sx(s[a]), sy(s[a])); ctx.lineTo(sx(s[b]), sy(s[b])); ctx.stroke(); }
-  // 腰の高さの線: 腕を下からこの線より上へ振り上げると投げる。構えた（腕が下がった）ら線が緑になる
-  ctx.strokeStyle = cam.det.armed() ? "#44e08f" : "rgba(255,255,255,.6)"; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(px, sy(s.pelvis)); ctx.lineTo(px + pw, sy(s.pelvis)); ctx.stroke(); ctx.setLineDash([]);
-  for (const k of ["lWr", "rWr"]) { if ((s[k].v ?? 1) < 0.3) continue; ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(sx(s[k]), sy(s[k]), 5, 0, Math.PI * 2); ctx.fill(); }
+  const s = cam.skel, sx = (q) => px + q.x / VW * pw, sy = (q) => py + q.y / VH * ph, seen = (q) => q && Number.isFinite(q.x) && (q.v ?? 1) >= 0.5;
+  if (s) {
+    ctx.strokeStyle = "#ffcc33"; ctx.lineWidth = 3;
+    for (const [a, b] of [["lSh", "rSh"], ["lSh", "lWr"], ["rSh", "rWr"], ["lSh", "lHip"], ["rSh", "rHip"], ["lHip", "rHip"]]) { if (!seen(s[a]) || !seen(s[b])) continue; ctx.beginPath(); ctx.moveTo(sx(s[a]), sy(s[a])); ctx.lineTo(sx(s[b]), sy(s[b])); ctx.stroke(); }
+    if (S.input === "camera" && seen(s.pelvis)) { // 腰の高さの線: 腕を下からこの線より上へ振り上げると投げる。構えたら緑
+      ctx.strokeStyle = cam.det.armed() ? "#44e08f" : "rgba(255,255,255,.6)"; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(px, sy(s.pelvis)); ctx.lineTo(px + pw, sy(s.pelvis)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const k of ["lWr", "rWr"]) { if ((s[k].v ?? 1) < 0.3) continue; ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(sx(s[k]), sy(s[k]), 5, 0, Math.PI * 2); ctx.fill(); }
+  } else {
+    ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(px, py, pw, ph); ctx.fillStyle = "#fff"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("体が見えません", px + pw / 2, py + ph / 2 - 6); ctx.fillText("上半身がカメラに映るように", px + pw / 2, py + ph / 2 + 14);
+  }
   ctx.restore();
+  // 立ち位置のバー: 画面の中央60%の範囲が、レーンの端から端に対応する
+  const by = py + ph + 8, bx0 = px + pw * 0.2, bx1 = px + pw * 0.8;
+  ctx.fillStyle = "rgba(255,255,255,.2)"; ctx.fillRect(px, by, pw, 14); ctx.fillStyle = "#d9a760"; ctx.fillRect(bx0, by, bx1 - bx0, 14);
+  if (cam.cx != null) { const mx = px + Math.max(0, Math.min(1, cam.cx / VW)) * pw; ctx.fillStyle = "#16285e"; ctx.beginPath(); ctx.arc(mx, by + 7, 8, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
 }
 
 // ---------- 空中ボタン（カメラ操作のときのメニュー用） ----------
@@ -733,7 +770,7 @@ function tickAir(now) {
 
 // ---------- メインループ・操作 ----------
 function loop(now) {
-  try { if (cam.fake) { const s = cam.fake(now); onCamPose(s, now, 1280); } else camTick(now); tickAir(now); render(now); } catch (e) { console.error(e); }
+  try { if (cam.fake) { const f = cam.fake(now); onCamPose(f ? (Array.isArray(f) ? f : [f]) : [], now, cam.fakeW || 1280, cam.fakeH || 720); } else camTick(now); tickAir(now); render(now); } catch (e) { console.error(e); }
   requestAnimationFrame(loop);
 }
 function goHome() { G.phase = "idle"; G.sim = null; setScreen("title"); sendState(); }
@@ -757,7 +794,8 @@ if (DEBUG) {
       totals: [0, 1].map((p) => scoreGame(G.rolls[p], S.frames).total), last: G.lastThrow }),
     set: (o) => { if (o.input) { S.input = o.input; selectGroup("input", o.input); } if (o.players) { S.players = o.players; selectGroup("players", o.players); } if (o.frames) { S.frames = o.frames; selectGroup("frames", o.frames); } if (o.speed) S.speed = o.speed; updatePairUI(); },
     start: () => startGame(), throw: (t) => doThrow(t), controllerURL: () => phone.room && controllerURL(),
-    fakeCamera: (fn) => { cam.fake = fn; cam.ready = true; },
+    fakeCamera: (fn, w = 1280, h = 720) => { cam.fake = fn; cam.ready = true; cam.fakeW = w; cam.fakeH = h; },
+    camState: () => ({ cx: cam.cx, seen: !!cam.skel, gripping: phone.gripping }),
   };
 }
 </script>
