@@ -102,7 +102,7 @@
       <div class="inner">
         <h2>からだボウリング</h2>
         <div class="row"><span class="lbl">操作方法</span>
-          <button class="air" data-input="phone" aria-pressed="true">スマホ<small>振って指を離して投げる</small></button>
+          <button class="air" data-input="phone" aria-pressed="true">スマホ<small>立ち位置はカメラ・投げるのはスマホ</small></button>
           <button class="air" data-input="camera" aria-pressed="false">カメラ<small>腕を振り上げて投げる</small></button>
         </div>
         <div class="row"><span class="lbl">人数</span>
@@ -172,7 +172,7 @@
     <div class="card">
       <h3>あそびかた</h3>
       <p class="help">
-        <b>スマホ:</b> ← → で立ち位置を決める。画面のボタンを押したまま腕を後ろから前へ振り、指を離すと投げます。強く振るほど速く、離す瞬間に手首をひねるとカーブします。<br>
+        <b>スマホ:</b> 体ごと左右に動いて立ち位置を決めます（PCのカメラで読み取り）。スマホのボタンを押したまま、腕を後ろに振ってから前へ振り、指を離すと投げます。強く振るほど速く、離す瞬間に手首をひねるとカーブします。<br>
         <b>カメラ:</b> 立つ位置で狙いを決め、腕を下から前へ振り上げると投げます（手が腰の高さを通った瞬間）。速く振り上げるほど速い球、斜めに振り上げるとカーブします。左下のワイプで、腕を下ろすと腰の線が緑になれば準備OKです。<br>
         <b>コツ:</b> まっすぐ真ん中より、カーブで1番ピンの斜め横（ポケット）に入れるとストライクになりやすい。
       </p>
@@ -197,10 +197,11 @@ function rackPositions() {
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // 1投分の物理計算。結果（倒れたピン）とアニメーション用の記録を返す。
-// t: {x0: 立ち位置(m), speed: 0〜1, spin: -1〜1（プラスで右へ曲がる）}、standing: 立っているピン（長さ10の真偽値）
+// t: {x0: 立ち位置(m), speed: 0〜1, spin: -1〜1（プラスで右へ曲がる）, angle: 投げる向き(度、プラスで右)}、standing: 立っているピン（長さ10の真偽値）
 function simulateRoll(t, standing, rand = Math.random) {
   const R = LANE.ballR, dt = 1 / 240;
-  const ball = { x: clamp(t.x0, -LANE.half + R, LANE.half - R), z: 0, vx: 0, vz: 5.6 + 3.4 * clamp(t.speed, 0, 1), m: 7, gutter: false, gone: false };
+  const vz0 = 5.6 + 3.4 * clamp(t.speed, 0, 1), ang = clamp(t.angle || 0, -6, 6) * Math.PI / 180;
+  const ball = { x: clamp(t.x0, -LANE.half + R, LANE.half - R), z: 0, vx: vz0 * Math.tan(ang), vz: vz0, m: 7, gutter: false, gone: false };
   const rack = rackPositions();
   const pins = rack.map((p, i) => standing[i] ? { n: p.n, x: p.x + (rand() - 0.5) * 0.006, z: p.z + (rand() - 0.5) * 0.006, vx: 0, vz: 0, m: 1.5, down: false, downAt: 0, gone: false } : null);
   const frames = []; let time = 0, firstHit = -1, ballLeftAt = -1;
@@ -427,7 +428,8 @@ function say(t) { $("msg").textContent = t; }
 function pop(text, cls) { const el = $("pop"); el.textContent = text; el.className = `pop ${cls}`; void el.offsetWidth; el.classList.add("show"); }
 function startGame() {
   Snd.init();
-  if (S.input === "camera" && !cam.ready) { startCamera(); return; }
+  if (S.input === "camera" && !cam.ready) { startCamera(false); return; }
+  if (S.input === "phone" && !cam.ready && !cam.failed) { startCamera(true); return; } // スマホでも立ち位置はカメラで読む
   G.rolls = [[], []]; G.cur = 0; G.standing = Array(10).fill(true); G.aim = 0; G.spin = 0; G.sim = null; G.phase = "aim";
   setScreen("play"); renderSheet(); updateTurn(); sendState();
 }
@@ -435,14 +437,15 @@ function updateTurn() {
   const c = rollContext(G.rolls[G.cur], S.frames);
   $("turn").innerHTML = ""; $("turn").append(document.createTextNode(S.players === 2 ? `${NAMES[G.cur]}の番` : "あなたの番"));
   const sm = document.createElement("small"); sm.textContent = `${c.frame + 1}フレーム目 ・ ${c.ball + 1}投目`; $("turn").append(sm);
-  say(S.input === "phone" ? "スマホのボタンを押したまま腕を振り、指を離して投げてください" : "立つ位置で狙いを決め、腕を下から前へ振り上げて投げてください（斜めに振るとカーブ）");
+  say(S.input === "phone" ? (cam.ready ? "体ごと左右に動いて立ち位置を決め、スマホを押したまま後ろ→前へ振って離してください" : "スマホを押したまま後ろ→前へ振って離してください（立ち位置は真ん中固定）") : "立つ位置で狙いを決め、腕を下から前へ振り上げて投げてください（斜めに振るとカーブ）");
 }
 function doThrow(t) {
   if (S.screen !== "play" || G.phase !== "aim") return false;
-  const throwP = { x0: t.x0 ?? G.aim, speed: t.speed, spin: t.spin ?? 0 };
+  const throwP = { x0: t.x0 ?? G.aim, speed: t.speed, spin: t.spin ?? 0, angle: t.angle ?? 0 };
   G.lastThrow = throwP;
   G.sim = simulateRoll(throwP, G.standing); G.simT0 = performance.now(); G.phase = "roll"; G.crashPlayed = false;
   $("info").textContent = `${Math.round((5.6 + 3.4 * throwP.speed) * 3.6)}km/h ・ カーブ ${throwP.spin > 0.15 ? "右" : throwP.spin < -0.15 ? "左" : "なし"}`;
+  sendFx("throw");
   say(""); Snd.roll(Math.min(3, G.sim.firstHit > 0 ? G.sim.firstHit : 2.5) / S.speed); sendState();
   return true;
 }
@@ -451,10 +454,10 @@ function finishRoll() {
   const before = rollContext(G.rolls[G.cur], S.frames), wasFull = G.standing.every(Boolean);
   G.rolls[G.cur].push(knocked);
   G.standing = G.standing.map((up, i) => up && !G.sim.down[i]);
-  if (knocked === 10 && wasFull) { pop("ストライク！", "strike"); Snd.strike(); }
-  else if (G.standing.every((u) => !u) && !wasFull) { pop("スペア！", "spare"); Snd.spare(); }
-  else if (G.sim.gutter) { pop("ガター", "gutter"); Snd.gutter(); }
-  else pop(knocked === 0 ? "0本" : `${knocked}本`, "normal");
+  if (knocked === 10 && wasFull) { pop("ストライク！", "strike"); Snd.strike(); sendFx("strike", "ストライク！"); }
+  else if (G.standing.every((u) => !u) && !wasFull) { pop("スペア！", "spare"); Snd.spare(); sendFx("spare", "スペア！"); }
+  else if (G.sim.gutter) { pop("ガター", "gutter"); Snd.gutter(); sendFx("gutter", "ガター…"); }
+  else { pop(knocked === 0 ? "0本" : `${knocked}本`, "normal"); sendFx("result", knocked === 0 ? "0本" : `${knocked}本`); }
   const after = rollContext(G.rolls[G.cur], S.frames);
   G.phase = "between"; G.betweenUntil = performance.now() + 1500 / S.speed;
   G.next = () => {
@@ -557,7 +560,7 @@ function render(now) {
     const t = (now - G.simT0) / 1000 * S.speed;
     const idx = Math.min(G.sim.frames.length - 1, Math.floor(t / (G.sim.frames[1]?.t - G.sim.frames[0]?.t || 1 / 60)));
     fr = G.sim.frames[Math.max(0, idx)];
-    if (!G.crashPlayed && G.sim.firstHit > 0 && t >= G.sim.firstHit) { G.crashPlayed = true; Snd.crash(G.sim.count); }
+    if (!G.crashPlayed && G.sim.firstHit > 0 && t >= G.sim.firstHit) { G.crashPlayed = true; Snd.crash(G.sim.count); sendFx("hit"); }
     if (idx >= G.sim.frames.length - 1) finishRoll();
   } else if (G.phase === "between" && G.sim) fr = G.sim.frames[G.sim.frames.length - 1];
   if (G.phase === "between" && now >= G.betweenUntil) { G.phase = "wait"; G.next(); }
@@ -580,14 +583,14 @@ function render(now) {
   }
   items.sort((a, b) => b.z - a.z).forEach((it) => it.draw());
   if (S.map && S.screen === "play") drawMiniMap(G.standing, fr && fr.pins.map((p) => !!(p && p.down)));
-  if (S.input === "camera" && cam.skel && S.screen !== "result") drawCamPip();
+  if (cam.skel && S.screen !== "result") drawCamPip();
   if (air.cursor) { ctx.fillStyle = "rgba(255,204,51,.9)"; ctx.beginPath(); ctx.arc(air.cursor.x, air.cursor.y, 16, 0, Math.PI * 2); ctx.fill(); }
 }
 
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.target.closest("input")) goHome(); });
 
 // ---------- 入力: スマホ（PeerJS でつなぐ） ----------
-const phone = { peer: null, conns: [], room: null, error: null };
+const phone = { peer: null, conns: [], room: null, error: null, gripping: false };
 function peerOptions() {
   // 自前の通信サーバーを使う場合は URL に ?peerHost=...&peerPort=...&peerPath=...&peerSecure=0 を付ける
   const o = { debug: 0 };
@@ -623,12 +626,19 @@ function onPhoneData(conn, d) {
   if (!d || typeof d !== "object") return;
   const idx = phone.conns.indexOf(conn);
   const mine = phone.conns.length < 2 || idx === G.cur;          // スマホ2台なら、自分の番のスマホだけ操作できる
-  if (d.t === "aim" && mine && G.phase === "aim") { G.aim = clamp(G.aim + Math.sign(d.d) * 0.04, -0.42, 0.42); }
-  else if (d.t === "throw" && mine) { if (!doThrow({ speed: clamp(Number(d.speed) || 0, 0, 1), spin: clamp(Number(d.spin) || 0, -1, 1) })) sendState(); }
+  if (d.t === "grip" && mine) { phone.gripping = !!d.on; }                                   // ボールを握っている間は立ち位置を固定
+  else if (d.t === "throw" && mine) {
+    phone.gripping = false;
+    if (!doThrow({ speed: clamp(Number(d.speed) || 0, 0, 1), spin: clamp(Number(d.spin) || 0, -1, 1) })) sendState();
+  }
   else if (d.t === "start") { if (S.screen === "title" || S.screen === "result") { S.input = "phone"; selectGroup("input", "phone"); startGame(); } }
 }
+// スマホへの手応え（振動・大きな文字）。投げた人のスマホへ送る
+function sendFx(kind, text = "") {
+  phone.conns.forEach((c, i) => { if (phone.conns.length < 2 || i === G.cur) { try { c.send({ t: "fx", kind, text }); } catch { /* 切れていたら無視 */ } } });
+}
 function sendState() {
-  const myTurnText = S.screen !== "play" ? (S.screen === "result" ? "ゲーム終了。「もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」") : G.phase === "aim" ? `${S.players === 2 ? NAMES[G.cur] + "の番" : "あなたの番"}：押したまま振って、指を離して投げる` : "ボールが転がっています…";
+  const myTurnText = S.screen !== "play" ? (S.screen === "result" ? "ゲーム終了。「もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」") : G.phase === "aim" ? `${S.players === 2 ? NAMES[G.cur] + "の番" : "あなたの番"}：体ごと左右に動いて立ち位置を決め、ボタンを押したまま後ろ→前へ振って離す` : "ボールが転がっています…";
   phone.conns.forEach((c, i) => { try { c.send({ t: "state", text: myTurnText, canThrow: S.screen === "play" && G.phase === "aim" && (phone.conns.length < 2 || i === G.cur), you: phone.conns.length === 2 ? NAMES[i] : "", screen: S.screen }); } catch { /* 切れていたら無視 */ } });
 }
 function updatePairUI() {
@@ -652,8 +662,8 @@ function updatePairUI() {
 
 // ---------- 入力: カメラ ----------
 const cam = { ready: false, pose: null, skel: null, det: createThrowDetector(), lastTs: -1, starting: false };
-async function startCamera() {
-  if (cam.starting) return; cam.starting = true; say("カメラとAIを準備中…");
+async function startCamera(optional) {
+  if (cam.starting) return; cam.starting = true; say("カメラとAIを準備中…（立ち位置を読むのに使います）");
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
     await video.play();
@@ -665,6 +675,7 @@ async function startCamera() {
     cam.ready = true; cam.starting = false; say(""); startGame();
   } catch (e) {
     console.warn(e); cam.starting = false;
+    if (optional) { cam.failed = true; startGame(); say("カメラが使えないため、立ち位置は真ん中に固定して遊びます"); return; }
     say(e?.name === "NotAllowedError" ? "カメラが許可されていません。アドレスバーのカメラのアイコンから許可してください" : e?.name === "NotReadableError" ? "カメラを別のアプリが使っている可能性があります" : "カメラかAIを準備できませんでした。http://localhost（Live Server）か https で開いているか確認してください");
   }
 }
@@ -679,7 +690,8 @@ function onCamPose(s, t, VW) {
   if (!s) return;
   // 立ち位置をカメラで決めるのはカメラモードのときだけ（他のモードで◀▶の操作を上書きしないように）。
   // 投げる動作が始まったら固定する（振る勢いで体が動いて狙いがずれないように）
-  if (S.input === "camera" && S.screen === "play" && G.phase === "aim" && !cam.det.armed()) G.aim = aimFromBody(s.pelvis.x, VW);
+  const frozen = S.input === "camera" ? cam.det.armed() : phone.gripping;
+  if ((S.input === "camera" || S.input === "phone") && S.screen === "play" && G.phase === "aim" && !frozen) G.aim = aimFromBody(s.pelvis.x, VW);
   const ev = cam.det.push(t, s);
   if (ev && S.input === "camera") doThrow({ speed: ev.speed, spin: ev.spin });
 }
