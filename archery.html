@@ -103,8 +103,8 @@
       <div class="inner">
         <h2>からだアーチェリー</h2>
         <div class="row"><span class="lbl">操作方法</span>
-          <button class="air" data-input="phone" aria-pressed="true">スマホ<small>スマホを向けて狙う（カメラ不要）</small></button>
-          <button class="air" data-input="camera" aria-pressed="false">カメラ<small>弓を引くポーズで狙う（試作）</small></button>
+          <button class="air" data-input="phone" aria-pressed="true">スマホ＋カメラ<small>スマホで狙い、もう片方の手で弦を引く</small></button>
+          <button class="air" data-input="camera" aria-pressed="false">カメラだけ<small>弓を引くポーズで狙う（試作）</small></button>
         </div>
         <div class="row"><span class="lbl">難易度</span>
           <button class="air" data-level="1" aria-pressed="true">初級<small>18m ・ 無風</small></button>
@@ -177,7 +177,7 @@
     <div class="card">
       <h3>あそびかた</h3>
       <p class="help">
-        <b>スマホ:</b> スマホの上の端を画面に向けて、腕をのばして持ちます。ボタンを押している間、弓を引きます（約1秒でいっぱい）。スマホの向きを変えると照準が動くので、的の真ん中に合わせて指を離すと矢が飛びます。<br>
+        <b>スマホ＋カメラ:</b> スマホを持った手（弓を持つ手）を画面に向けてのばし、ボタンを押したままにします。スマホの向きを変えると照準が動きます。もう片方の手で弦をつまむように、顔の横まで引くと弓が引けます（PCのカメラで読み取り）。狙いが合ったらスマホの指を離すと発射。カメラが使えないときは、長押しの時間で引きます。<br>
         <b>カメラ（試作）:</b> 両手を胸の前で合わせて構え、片手を顔の横まで引いて止めます。前の手を動かして狙い、引いた手をパッと離すと発射です。<br>
         <b>コツ:</b> 照準は少しずつ揺れます。揺れが真ん中に来た瞬間に離しましょう。引きが足りないと矢が下に落ちます。風があると矢が流されるので、風上を狙います。長く引きすぎると腕が疲れて揺れが大きくなります。
       </p>
@@ -194,10 +194,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const TARGET = { y: 1.3, r: 0.61, ring: 0.061, arrowR: 0.0035 };   // 直径122cmの的（10点の輪の幅 6.1cm）。中心の高さ 1.3m
 const EYE = 1.45, V_FULL = 58, G_ACC = 9.8, WIND_K = 0.16; // 矢を放つ高さ・いっぱいに引いた矢の速さ(m/s)・重力・風の効き
 const LEVELS = {
-  1: { name: "初級", D: 18, wind: [0, 0], gust: 0, sway: 0.03 },
-  2: { name: "中級", D: 30, wind: [0.5, 2.0], gust: 0, sway: 0.045 },
-  3: { name: "上級", D: 50, wind: [1.5, 4.0], gust: 0.8, sway: 0.06 },
-  4: { name: "鬼", D: 70, wind: [3.0, 6.0], gust: 1.4, sway: 0.075 },
+  1: { name: "初級", D: 18, wind: [0, 0], gust: 0, sway: 0.01 },      // sway: ゲームがわざと加える照準の揺れ(m)。手の震えもあるので小さめ
+  2: { name: "中級", D: 30, wind: [0.5, 2.0], gust: 0, sway: 0.018 },
+  3: { name: "上級", D: 50, wind: [1.5, 4.0], gust: 0.8, sway: 0.028 },
+  4: { name: "鬼", D: 70, wind: [3.0, 6.0], gust: 1.4, sway: 0.038 },
 };
 const arrowSpeed = (power) => 30 + 28 * clamp(power, 0, 1);       // 引きが足りないと遅い → 下に落ちる
 // 的の中心からのずれ(m) → 得点。線に触れていれば高い方の点（矢の太さの分を引く）
@@ -257,8 +257,8 @@ function swayAt(amp, t, ph, drawSec) {
   return { x: amp * f * (0.6 * Math.sin(0.8 * t + ph[0]) + 0.4 * Math.sin(1.7 * t + ph[1])), y: amp * f * (0.6 * Math.sin(0.65 * t + ph[2]) + 0.4 * Math.sin(2.1 * t + ph[3])) };
 }
 const viewW = (D) => 3.2 + 0.06 * D;           // 狙う画面に、的の位置で何m分が見えるか（遠いほど的が小さく見える: 18m → 4.3m、70m → 7.4m）
-const aimGainPhone = (D) => 0.10 + 0.004 * D;    // スマホを1度向けると、的の位置で何m動くか（遠いほど少し敏感に）
-const aimGainCam = (D) => 1.0 + 0.008 * D;       // 前の手を肩幅1つ分動かすと、的の位置で何m動くか
+const aimGainPhone = (D) => 0.04 + 0.0015 * D;   // スマホを1度向けると、的の位置で何m動くか（18m → 6.7cm、70m → 14.5cm）。手の震え(0.5〜1度)で照準が暴れないよう低め
+const aimGainCam = (D) => 0.6 + 0.004 * D;       // 前の手を肩幅1つ分動かすと、的の位置で何m動くか（18m → 67cm）。カメラの点の揺れが出にくいよう低め
 const DRAW_MS = 900;                              // スマホ: 押してから引ききるまでの時間
 const drawPowerFromHold = (ms) => clamp(ms / DRAW_MS, 0, 1);
 // 射つ順番: 1本目 P1→P2、2本目 P1→P2 …
@@ -322,6 +322,17 @@ function createDrawDetector() {
       return null;
     },
   };
+}
+// スマホ＋カメラ: スマホを持った手（前に伸ばす）と、もう片方の手（顔の横まで引く）の距離 → 引きの強さ 0〜1
+// どちらの手でスマホを持っても同じ（両手の距離だけを見る）。片手が下がっているときは「引いていない」= 0。手が見えなければ null
+function pullPower(s) {
+  const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
+  if (!s || !ok(s.lWr) || !ok(s.rWr) || !ok(s.lSh) || !ok(s.rSh)) return null;
+  const sw = Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) || 1, shY = (s.lSh.y + s.rSh.y) / 2;
+  if (s.lWr.y > shY + 1.1 * sw || s.rWr.y > shY + 1.1 * sw) return 0;
+  let p = clamp((Math.hypot(s.lWr.x - s.rWr.x, s.lWr.y - s.rWr.y) / sw - 0.25) / 0.55, 0, 1);       // 画面上の距離（肩幅0.8個分でいっぱい）
+  if (s.world && s.world.lWr && s.world.rWr) { const a = s.world.lWr, b = s.world.rWr; p = Math.max(p, clamp((Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) - 0.15) / 0.35, 0, 1)); } // 奥行きも含めた距離（50cmでいっぱい）
+  return p;
 }
 // 映っている人の中から遊んでいる人を選ぶ（手前に大きく映っている人。前回の位置に近い人を優先）
 function bodyCenterX(s) {
@@ -412,16 +423,17 @@ function say(t) { if ($("msg").textContent !== t) $("msg").textContent = t; }
 function pop(text, cls) { const el = $("pop"); el.textContent = text; el.className = `pop ${cls}`; void el.offsetWidth; el.classList.add("show"); }
 function startGame() {
   Snd.init();
-  if (S.input === "camera" && !cam.ready) { startCamera(); return; }
+  if (S.input === "camera" && !cam.ready) { startCamera(false); return; }
+  if (S.input === "phone" && !cam.ready && !cam.failed) { startCamera(true); return; } // スマホでも、弦を引く動きはカメラで読む
   G.shots = [[], []]; G.order = turnOrder(S.players, S.arrows); G.k = 0; G.winds = makeWinds(S.level, S.arrows, Math.random);
   setScreen("play"); beginAim(); renderSheet();
 }
 function beginAim() {
   const now = performance.now();
-  G.phase = "aim"; G.aimT0 = now; G.drawing = false; G.inp = { x: 0, y: 0 }; G.retHist = []; G.shot = null;
+  G.phase = "aim"; G.aimT0 = now; G.drawing = false; G.inp = { x: 0, y: 0 }; G.inpT = { x: 0, y: 0 }; G.retHist = []; G.shot = null;
   // 照準は的から少し外れた所から始まる（何もしないで放っても真ん中には当たらない）
-  const a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 0.3;
-  G.start = { x: Math.cos(a) * r, y: Math.sin(a) * r * 0.8 };
+  const a = Math.random() * Math.PI * 2, r = 0.2 + Math.random() * 0.15;
+  G.start = S.input === "camera" ? { x: 0, y: 0 } : { x: Math.cos(a) * r, y: Math.sin(a) * r * 0.8 }; // カメラだけ: 引ききった瞬間に照準が的の真ん中から始まる
   G.ph = [0, 1, 2, 3].map(() => Math.random() * 6.28);
   cam.det.reset();
   setCamView(true); updateTurn(); renderSheet(); sendState();
@@ -434,11 +446,13 @@ function updateTurn() {
 function beginDraw(by) {
   if (S.screen !== "play" || G.phase !== "aim" || G.drawing) return false;
   const now = performance.now();
-  G.drawing = true; G.drawBy = by; G.drawT0 = now; G.lastAimMsg = now; G.inp = { x: 0, y: 0 }; G.fullPlayed = false;
+  G.drawing = true; G.drawBy = by; G.drawT0 = now; G.camRef = null; G.lastAimMsg = now; G.inp = { x: 0, y: 0 }; G.inpT = { x: 0, y: 0 }; G.fullPlayed = false; G.noteUntil = 0; // 直前の注意は消す
   Snd.draw(); return true;
 }
-function cancelDraw(text) { if (!G.drawing) return; G.drawing = false; G.inp = { x: 0, y: 0 }; if (text) say(text); sendState(); }
-function currentPower(now) { return !G.drawing ? 0 : G.drawBy === "camera" ? cam.det.state().power : drawPowerFromHold(now - G.drawT0); }
+function cancelDraw(text) { if (!G.drawing) return; G.drawing = false; G.inp = { x: 0, y: 0 }; G.inpT = { x: 0, y: 0 }; if (text) { say(text); G.noteUntil = performance.now() + 2500; } sendState(); }
+// スマホ＋カメラのとき、カメラで引きを読めているか（読めなければ、長押しの時間で引く）
+const camPull = () => S.input === "phone" && cam.ready && cam.pull != null && performance.now() - (cam.pullAt || 0) < 500;
+function currentPower(now) { return !G.drawing ? 0 : G.drawBy === "camera" ? cam.det.state().power : camPull() ? cam.pull : drawPowerFromHold(now - G.drawT0); }
 // 放す。照準は少し前（指を離す・手を動かす瞬間のブレを避けるため）の位置を使う
 function release(power, aimOverride) {
   if (S.screen !== "play" || G.phase !== "aim") return false;
@@ -652,7 +666,7 @@ function render(now) {
     if (G.phase === "impact") drawFaceDiagram(W - 190, H / 2 + 30, 150, p, G.shot.i, `${S.players === 2 ? NAMES[p] + "の" : ""}当たった場所`);
     else if (G.phase === "aim") drawFaceDiagram(W - 92, H - 92, 62, p, -1, "これまで");
   }
-  if (S.input === "camera" && cam.ready && S.screen !== "result") drawCamPip(now);
+  if (cam.ready && S.screen !== "result") drawCamPip(now);
   if (air.cursor) { ctx.fillStyle = "rgba(255,204,51,.9)"; ctx.beginPath(); ctx.arc(air.cursor.x, air.cursor.y, 16, 0, Math.PI * 2); ctx.fill(); }
 }
 
@@ -662,14 +676,17 @@ function step(now) {
   if (G.phase === "aim") {
     const t = (now - G.aimT0) / 1000, w = G.winds[curI()];
     G.windNow = w ? windAt(w, t) : 0;
+    const sm = S.input === "camera" ? 0.15 : 0.3;   // なめらかに追いかける（カメラは点が揺れやすいので強めに）
+    G.inp = { x: G.inp.x + (G.inpT.x - G.inp.x) * sm, y: G.inp.y + (G.inpT.y - G.inp.y) * sm };
     const sw = swayAt(L().sway, t, G.ph, G.drawing ? (now - G.drawT0) / 1000 : 0);
     const hw = viewW(L().D) / 2 - 0.15, hh = viewW(L().D) * 9 / 32 - 0.15;   // 照準は画面の外に出ない
     G.reticle = { x: clamp(G.start.x + G.inp.x + sw.x, -hw, hw), y: clamp(G.start.y + G.inp.y + sw.y, -hh, hh) };
     G.retHist.push({ t: now, x: G.reticle.x, y: G.reticle.y }); while (G.retHist.length && G.retHist[0].t < now - 1000) G.retHist.shift();
     if (G.drawing && !G.fullPlayed && currentPower(now) >= 1) { G.fullPlayed = true; Snd.full(); sendFx("full"); }
     if (G.drawing && G.drawBy === "phone" && now - G.lastAimMsg > 3000) cancelDraw("スマホからの信号が途切れました。もう一度ボタンを押してください");
-    if (S.input === "phone") say(G.drawing ? "" : "スマホを画面に向けて、ボタンを押したまま狙い、指を離すと発射");
-    else { const st = cam.det.state(); say(!cam.skel ? "上半身がカメラに映るように立ってください" : st.phase === "idle" ? "両手を胸の前で合わせて構えてください" : st.phase === "set" ? "片手を顔の横まで引いてください" : st.anchored ? "前の手で狙って、引いた手をパッと離す！" : "引いたところで止めてください"); }
+    if (G.noteUntil && now < G.noteUntil) { /* 直前の注意を表示中 */ }
+    else if (S.input === "phone") say(G.drawing ? (camPull() ? ((cam.pull ?? 0) < 0.15 ? "もう片方の手で、弦を顔の横まで引いて！" : "") : "") : camPull() || (cam.ready && !cam.failed) ? "スマホを持った手を画面に向けてのばし、ボタンを押したまま、もう片方の手で弦を引く → 指を離すと発射" : "スマホを画面に向けて、ボタンを長押しで引き、狙って指を離すと発射");
+    else { const st = cam.det.state(); say(!cam.skel ? "上半身がカメラに映るように立ってください" : st.phase === "idle" ? "両手を胸の前で合わせて構えてください" : st.phase === "set" ? "片手を顔の横まで引いてください" : st.anchored ? "照準は真ん中から。前の手を少し動かして狙い、引いた手をパッと離す！" : "顔の横まで引いて止めてください（止めると照準が動き出します）"); }
   } else if (G.phase === "flight") {
     const dt = Math.min(0.05, (now - G.flightLast) / 1000); G.flightLast = now;
     const s = G.shot.sim, a = arrowAt(s, G.tau), slow = L().D - a.z < 4 ? 0.35 : 1, rate = clamp(s.t / 1.1, 0.3, 1);
@@ -721,18 +738,22 @@ function onPhoneData(conn, d) {
   else if (d.t === "draw" && !d.on) cancelDraw("");
   else if (d.t === "aim" && G.drawing && G.drawBy === "phone") {
     const k = aimGainPhone(L().D); G.lastAimMsg = now;
-    G.inp = { x: clamp(Number(d.x) || 0, -40, 40) * k, y: clamp(Number(d.y) || 0, -40, 40) * k };
+    G.inpT = { x: clamp(Number(d.x) || 0, -60, 60) * k, y: clamp(Number(d.y) || 0, -60, 60) * k };
   } else if (d.t === "release" && G.drawing && G.drawBy === "phone") {
     const held = now - G.drawT0;
     if (held < 250) { cancelDraw("押してすぐ離すと射てません。押したまま狙ってから離してください"); return; }
-    release(drawPowerFromHold(held));
+    if (camPull()) {
+      const recent = cam.pullHist.filter((h) => h.t >= now - 250 && h.t <= now - 20), pw = recent.length ? Math.max(...recent.map((h) => h.p)) : cam.pull;
+      if (pw < 0.15) { cancelDraw("弦を引いていません。もう片方の手を顔の横まで引いてから、指を離してください"); return; }
+      release(pw);
+    } else release(drawPowerFromHold(held));
   }
 }
 function sendFx(kind, text = "") {
   phone.conns.forEach((c, i) => { if (phone.conns.length < 2 || i === curP()) { try { c.send({ t: "fx", kind, text }); } catch { /* 切れていたら無視 */ } } });
 }
 function sendState() {
-  const text = S.screen !== "play" ? (S.screen === "result" ? "ゲーム終了。「もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」") : G.phase === "aim" ? `${S.players === 2 ? NAMES[curP()] + "の番" : "あなたの番"}：画面に向けて、押したまま狙って、離すと発射` : "矢が飛んでいます…";
+  const text = S.screen !== "play" ? (S.screen === "result" ? "ゲーム終了。「もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」") : G.phase === "aim" ? `${S.players === 2 ? NAMES[curP()] + "の番" : "あなたの番"}：画面に向けて押したまま、もう片方の手で弦を引いて、指を離すと発射` : "矢が飛んでいます…";
   phone.conns.forEach((c, i) => { try { c.send({ t: "state", text, canDraw: S.screen === "play" && G.phase === "aim" && (phone.conns.length < 2 || i === curP()), you: phone.conns.length === 2 ? NAMES[i] : "", screen: S.screen, drawMs: DRAW_MS }); } catch { /* 切れていたら無視 */ } });
 }
 function updatePairUI() {
@@ -755,9 +776,9 @@ function updatePairUI() {
 }
 
 // ---------- 入力: カメラ（試作） ----------
-const cam = { ready: false, pose: null, skel: null, det: createDrawDetector(), lastTs: -1, starting: false, cx: null };
-async function startCamera() {
-  if (cam.starting) return; cam.starting = true; say("カメラとAIを準備中…");
+const cam = { ready: false, pose: null, skel: null, det: createDrawDetector(), lastTs: -1, starting: false, cx: null, pull: null, pullAt: 0, pullHist: [] };
+async function startCamera(optional) {
+  if (cam.starting) return; cam.starting = true; say("カメラとAIを準備中…（弦を引く動きを読むのに使います）");
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
     await video.play();
@@ -769,6 +790,7 @@ async function startCamera() {
     cam.ready = true; cam.starting = false; say(""); startGame();
   } catch (e) {
     console.warn(e); cam.starting = false;
+    if (optional) { cam.failed = true; startGame(); say("カメラが使えないため、ボタンを長く押すほど強く引けるようにして遊びます"); G.noteUntil = performance.now() + 4000; return; }
     say(e?.name === "NotAllowedError" ? "カメラが許可されていません。アドレスバーのカメラのアイコンから許可してください" : e?.name === "NotReadableError" ? "カメラを別のアプリが使っている可能性があります" : "カメラかAIを準備できませんでした。http://localhost（Live Server）か https で開いているか確認してください");
   }
 }
@@ -782,6 +804,11 @@ function onCamPose(skels, t, VW, VH) {
   cam.VW = VW; cam.VH = VH;
   const s = pickPlayer(skels || [], cam.cx, VW);
   if (s) { cam.skel = s; cam.lastSeen = t; cam.cx = bodyCenterX(s); } else if (t - (cam.lastSeen || 0) > 400) { cam.skel = null; cam.cx = null; }
+  if (S.input === "phone") {  // 弦を引く強さ（少しなめらかに）。手が見えない時間が続いたら「読めない」扱い
+    const p = pullPower(s);
+    if (p != null) { cam.pull = cam.pull == null || Math.abs(p - cam.pull) < 0.03 ? p : cam.pull + (p - cam.pull) * 0.5; cam.pullAt = t; cam.pullHist.push({ t, p: cam.pull }); while (cam.pullHist.length && cam.pullHist[0].t < t - 1000) cam.pullHist.shift(); }
+    return;
+  }
   if (S.input !== "camera") return;
   const ev = cam.det.push(t, s);
   if (S.screen !== "play" || G.phase !== "aim") return;
@@ -789,8 +816,11 @@ function onCamPose(skels, t, VW, VH) {
   else if (ev?.type === "cancel") cancelDraw(ev.reason === "lost" ? "体が見えなくなったので、構え直してください" : "");
   else if (ev?.type === "release" && G.drawing) release(ev.power);
   if (G.drawing && G.drawBy === "camera") {
+    // 引いている途中は前の腕も動くので、照準は動かさない。引ききって止めた瞬間の手の位置を「真ん中」とし、そこからの動きで狙う
     const st = cam.det.state(), k = aimGainCam(L().D);
-    G.inp = { x: G.inp.x + (st.aim.x * k - G.inp.x) * 0.5, y: G.inp.y + (st.aim.y * k - G.inp.y) * 0.5 };
+    if (st.anchored && !G.camRef) G.camRef = { ...st.aim };
+    if (!st.anchored) G.camRef = null;
+    G.inpT = G.camRef ? { x: (st.aim.x - G.camRef.x) * k, y: (st.aim.y - G.camRef.y) * k } : { x: 0, y: 0 };
   }
 }
 function camTick(now) {
@@ -805,12 +835,12 @@ function drawCamPip() {
   if (video.readyState >= 2) { ctx.translate(px + pw, py); ctx.scale(-1, 1); ctx.globalAlpha = .8; ctx.drawImage(video, 0, 0, pw, ph); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; }
   const s = cam.skel, sx = (q) => px + q.x / VW * pw, sy = (q) => py + q.y / VH * ph, seen = (q) => q && Number.isFinite(q.x) && (q.v ?? 1) >= 0.5;
   if (s) {
-    const st = cam.det.state();
+    const st = S.input === "phone" ? { phase: "phone", anchored: G.drawing && (cam.pull ?? 0) >= 1, power: cam.pull ?? 0 } : cam.det.state();
     ctx.strokeStyle = st.anchored ? "#ffcc33" : st.phase === "idle" ? "rgba(255,255,255,.8)" : "#44e08f"; ctx.lineWidth = 3;
     for (const [a, b] of [["lSh", "rSh"], ["lSh", "lEl"], ["lEl", "lWr"], ["rSh", "rEl"], ["rEl", "rWr"], ["lSh", "lHip"], ["rSh", "rHip"], ["lHip", "rHip"]]) { if (!seen(s[a]) || !seen(s[b])) continue; ctx.beginPath(); ctx.moveTo(sx(s[a]), sy(s[a])); ctx.lineTo(sx(s[b]), sy(s[b])); ctx.stroke(); }
     for (const k of ["lWr", "rWr"]) { if (!seen(s[k])) continue; ctx.fillStyle = st.bow && k === st.bow + "Wr" ? "#ff2e7a" : "#fff"; ctx.beginPath(); ctx.arc(sx(s[k]), sy(s[k]), 5, 0, Math.PI * 2); ctx.fill(); }
     ctx.fillStyle = "rgba(5,6,13,.7)"; ctx.fillRect(px, py, pw, 22); ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif"; ctx.textAlign = "left";
-    ctx.fillText(st.phase === "idle" ? "構え待ち" : st.phase === "set" ? "構えた → 引く" : st.anchored ? "引ききった → 放す" : `引いています ${Math.round(st.power * 100)}%`, px + 6, py + 16);
+    ctx.fillText(st.phase === "phone" ? (cam.pull == null ? "両手が映るように" : `弦の引き ${Math.round(st.power * 100)}%`) : st.phase === "idle" ? "構え待ち" : st.phase === "set" ? "構えた → 引く" : st.anchored ? "引ききった → 放す" : `引いています ${Math.round(st.power * 100)}%`, px + 6, py + 16);
   } else {
     ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(px, py, pw, ph); ctx.fillStyle = "#fff"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
     ctx.fillText("体が見えません", px + pw / 2, py + ph / 2 - 6); ctx.fillText("上半身がカメラに映るように", px + pw / 2, py + ph / 2 + 14);

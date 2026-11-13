@@ -23,7 +23,6 @@
   .hold small { display: block; font-size: .85rem; font-weight: 400; margin-top: 6px; }
   .hold.holding { background: #ff9d2e; }
   .hold:disabled { background: #3a3f6b; color: var(--muted); }
-  .gauge { position: absolute; left: 0; bottom: 0; height: 14px; width: 0; background: #241a00; opacity: .55; }
   .big { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.6rem; font-weight: 800; background: rgba(15,18,34,.92); color: var(--accent); pointer-events: none; opacity: 0; transition: opacity .2s; }
   .big.show { opacity: 1; }
   .last { color: var(--muted); font-size: .88rem; text-align: center; min-height: 1.3em; margin: 0; }
@@ -41,8 +40,7 @@
   <div class="status"><span><span class="dot" id="dot"></span><span id="conn">通信サーバーに接続中…</span></span><span id="who"></span></div>
   <div class="state" id="state">PCとつないでいます…</div>
   <button class="hold" id="hold" disabled>
-    <span id="holdText">スマホの上の端を画面に向けて<br>押している間 弓を引く<br>向きを変えて狙い、離すと発射<small>約1秒でいっぱいに引けます</small></span>
-    <span class="gauge" id="gauge"></span>
+    <span id="holdText">この手を画面に向けてのばし<br>押したまま、もう片方の手で<br>弦を顔の横まで引いて<br>指を離すと発射<small>スマホの向きで狙う ・ カメラがないときは長押しで引く</small></span>
     <span class="big" id="big"></span>
   </button>
   <div style="display:grid; gap:8px">
@@ -149,13 +147,12 @@ $("sensorBtn").addEventListener("click", enableSensor);
 
 // ---- 引く（押している間）・放す（離す） ----
 const hold = $("hold");
-function gaugeLoop() { if (!holding) { $("gauge").style.width = "0"; return; } const p = Math.min(1, (performance.now() - holdT) / drawMs); $("gauge").style.width = `${p * 100}%`; requestAnimationFrame(gaugeLoop); }
 hold.addEventListener("pointerdown", (e) => {
   if (!canDraw) return;
   if (!sensorOn) { enableSensor(); return; }          // 初回はセンサーの許可だけ（許可の画面が出るため）
   holding = true; holdT = performance.now(); tracker.reset(); hold.classList.add("holding");
   try { hold.setPointerCapture(e.pointerId); } catch { /* 指が外れても離したときに放てるように */ }
-  buzz(15); send({ t: "draw", on: true }); send({ t: "aim", x: 0, y: 0 }); gaugeLoop();
+  buzz(15); send({ t: "draw", on: true }); send({ t: "aim", x: 0, y: 0 });
 });
 function release() {
   if (!holding) return; holding = false; hold.classList.remove("holding");
