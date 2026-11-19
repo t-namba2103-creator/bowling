@@ -173,7 +173,7 @@
       <h3>あそびかた</h3>
       <p class="help">
         <b>スマホ:</b> 体ごと左右に動いて立ち位置を決めます（PCのカメラで読み取り）。スマホのボタンを押したまま、腕を後ろに振ってから前へ振り、指を離すと投げます。強く振るほど速く、離す瞬間に手首をひねるとカーブします。<br>
-        <b>カメラ:</b> 立つ位置で狙いを決め、腕を下から前へ振り上げると投げます（手が腰の高さを通った瞬間）。速く振り上げるほど速い球、斜めに振り上げるとカーブします。左下のワイプで、腕を下ろすと腰の線が緑になれば準備OKです。<br>
+        <b>カメラ:</b> 立つ位置で狙いを決めます。腕を下ろして少し止める（左下のワイプの腰の線が緑になれば準備OK）→ 腕を後ろへ振る → 前へ胸の高さまで振り上げると投げます。手を少し動かしただけでは投げません。速く振り上げるほど速い球、斜めに振り上げるとカーブします。<br>
         <b>コツ:</b> まっすぐ真ん中より、カーブで1番ピンの斜め横（ポケット）に入れるとストライクになりやすい。
       </p>
     </div>
@@ -317,42 +317,85 @@ function frameMarks(fr) {
 }
 
 // ---- カメラで投げる動作を見つける ----
-// 腕を下から前へ振り上げ、手が「腰より低い位置 → 腰の高さ」を通った瞬間を「投げた」とする。
-//  ・速く振るとAIが手首を一瞬見失うので、見えないフレームは飛ばす（記録は消さない）
-//  ・腕を後ろに振る（バックスイング）ときの上昇で投げないよう、手が体の後ろにあるとき・見えない時間をまたぐ動きは数えない
-//  ・速さ = 腰の高さを通るときの上向きの速さ（胴の長さ/秒）、カーブ = 最下点から投げた瞬間までの手の斜めの傾き
+// 本物の投げ方（振り子）の順番がそろったときだけ「投げた」とする。手を少し動かしただけ・AIの読み間違いでは投げない。
+//  1. 準備: 腕を下ろして（手が腰より下）0.3秒ほど止まる
+//  2. バックスイング: 腕を後ろへ振る（体の後ろに隠れる／見えなくなる／高い位置から振り下ろしてくる）
+//  3. 振り上げ: 手が下から胸の高さまで速く上がる（下から胴の長さ0.6以上、0.7秒以内、速さ 2.0 胴/秒以上）
+//  ・1フレームで手がありえない距離を飛んだら、AIの読み間違いとして記録を捨てる
+//  ・速さ = 振り上げの一番速いところ、カーブ = 一番下から振り上げ終わりまでの手の斜めの傾き
 function createThrowDetector(o = {}) {
-  const cfg = { armBelow: 0.25, releaseLine: 0, vMin: 1.2, vMax: 5, spinGain: 2.4, maxGap: 170, cool: 1500, ...o }; // maxGap: 30fps で4フレームまでの見失いは許す
-  const st = { lWr: { armed: false, low: null, last: null }, rWr: { armed: false, low: null, last: null } };
-  let coolUntil = -1e9;
+  const cfg = { low: 0.2, line: -0.35, vMin: 2.0, vMax: 6, minRise: 0.6, window: 700, readyHold: 300, readyStill: 0.15, backDrop: 0.25, backWin: 1200, maxJump: 0.6, spinGain: 2.0, cool: 1500, ...o };
+  const mk = () => ({ hist: [], readyAt: -1e9, hiddenAt: -1e9, lastSeen: -1e9 });
+  let st = { lWr: mk(), rWr: mk() }, coolUntil = -1e9, busyUntil = -1e9, lastT = 0;
   return {
-    armed: () => st.lWr.armed || st.rWr.armed,
+    reset() { st = { lWr: mk(), rWr: mk() }; busyUntil = -1e9; },
+    // 振っている最中か（立ち位置を固定するのに使う）
+    armed: () => lastT < busyUntil,
+    // 準備OK（腕を下ろして止まっている）か（ワイプの線を緑にする）
+    ready: () => ["lWr", "rWr"].some((k) => lastT - st[k].readyAt < 400),
     push(t, s) {
-      if (!s) return null;
-      const T = Math.hypot(s.neck.x - s.pelvis.x, s.neck.y - s.pelvis.y) || 1, hipZ = s.pelvis.z ?? 0;
+      lastT = t;
+      if (!s || !s.neck || !s.pelvis) return null;
+      const T = Math.hypot(s.neck.x - s.pelvis.x, s.neck.y - s.pelvis.y); if (!T) return null;
+      const hipZ = s.pelvis.z ?? 0;
       for (const k of ["lWr", "rWr"]) {
         const w = s[k], h = st[k];
-        if ((w.v ?? 1) < 0.3) continue;
-        const cur = { t, x: w.x / T, y: w.y / T, rel: (w.y - s.pelvis.y) / T, behind: w.z != null && w.z - hipZ > 0.08 };
-        if (cur.rel > cfg.armBelow && !cur.behind) { if (!h.armed) { h.armed = true; h.low = cur; } else if (cur.y > h.low.y) h.low = cur; }
-        const L = h.last;
-        if (h.armed && L && L.rel > cfg.releaseLine && cur.rel <= cfg.releaseLine && t >= coolUntil) {
-          const gap = t - L.t;
-          if (gap <= cfg.maxGap && !cur.behind && !L.behind) {
-            const rise = h.low.y - cur.y, vUp = Math.max((L.y - cur.y) / (gap / 1000), rise / Math.max(0.05, (t - h.low.t) / 1000));
-            const low = h.low; h.armed = false; h.low = null; h.last = cur;
-            if (vUp >= cfg.vMin) {
-              coolUntil = t + cfg.cool; st.lWr.armed = st.rWr.armed = false;
-              let spin = clamp((cur.x - low.x) / Math.max(rise, 0.3) * cfg.spinGain, -1, 1);
-              if (Math.abs(spin) < 0.08) spin = 0;
-              return { speed: clamp((vUp - cfg.vMin) / (cfg.vMax - cfg.vMin), 0, 1), spin, hand: k, vUp };
-            }
-            continue;
+        if (!w || !Number.isFinite(w.x) || (w.v ?? 1) < 0.5) {             // 見えない（速く振ったとき・体の後ろ）→ 飛ばす
+          if (t - h.lastSeen > 90) { h.hiddenAt = t; if (t - h.readyAt < 2000) busyUntil = t + 500; }
+          continue;
+        }
+        const cur = { t, x: w.x / T, rel: (w.y - s.pelvis.y) / T, behind: w.z != null && w.z - hipZ > 0.08 };
+        const prev = h.hist[h.hist.length - 1];
+        if (prev && Math.hypot(cur.x - prev.x, cur.rel - prev.rel) > cfg.maxJump * Math.max(1, (t - prev.t) / 33)) { // 読み間違い
+          h.hist = [cur]; h.readyAt = -1e9; h.lastSeen = t; continue;
+        }
+        h.lastSeen = t; h.hist.push(cur);
+        while (h.hist.length && h.hist[0].t < t - 2000) h.hist.shift();
+        if (cur.behind && t - h.readyAt < 2000) busyUntil = t + 500;
+        // 速さ（3フレーム分の幅で測る）
+        const h3 = h.hist.length >= 3 ? h.hist[h.hist.length - 3] : null;
+        const vNow = h3 && t - h3.t < 200 ? Math.hypot(cur.x - h3.x, cur.rel - h3.rel) / ((t - h3.t) / 1000) : 0;
+        if (vNow > 1.2) busyUntil = t + 500;
+        // 1. 準備: 手が下にあって止まっている
+        if (cur.rel > cfg.low && !cur.behind) {
+          const rec = h.hist.filter((q) => q.t >= t - cfg.readyHold && !q.behind);
+          if (rec.length >= 4 && rec[0].t <= t - cfg.readyHold * 0.8 && rec.every((q) => Math.hypot(q.x - cur.x, q.rel - cur.rel) < cfg.readyStill)) h.readyAt = t;
+        }
+        // 3. 振り上げで胸の高さの線を下から上へ通った
+        if (prev && !prev.behind && !cur.behind && prev.rel > cfg.line && cur.rel <= cfg.line && t >= coolUntil) {
+          const win = h.hist.filter((q) => q.t >= t - cfg.window && !q.behind);
+          const low = win.reduce((m, q) => (!m || q.rel > m.rel ? q : m), null);
+          const rise = low ? low.rel - cur.rel : 0;
+          let vUp = 0;
+          for (let i = 2; i < h.hist.length; i++) { const a = h.hist[i - 2], b = h.hist[i]; if (b.t < t - 400 || b.t - a.t > 200 || a.behind || b.behind) continue; vUp = Math.max(vUp, (a.rel - b.rel) / ((b.t - a.t) / 1000)); }
+          // 2. バックスイングがあったか: 一番下に来る前に、隠れた・体の後ろにあった・高い所から振り下ろしてきた
+          const before = low ? h.hist.filter((q) => q.t < low.t && q.t >= low.t - cfg.backWin) : [];
+          const hadBack = low && (h.hiddenAt >= low.t - cfg.backWin && h.hiddenAt <= low.t + 100 || before.some((q) => q.behind || q.rel <= low.rel - cfg.backDrop));
+          const ready = t - h.readyAt < 3500;
+          if (ready && low && low.rel > cfg.low && rise >= cfg.minRise && vUp >= cfg.vMin && hadBack) {
+            coolUntil = t + cfg.cool; st.lWr.readyAt = st.rWr.readyAt = -1e9;
+            let spin = clamp((cur.x - low.x) / Math.max(rise, 0.3) * cfg.spinGain, -1, 1);
+            if (Math.abs(spin) < 0.12) spin = 0;
+            return { speed: clamp((vUp - cfg.vMin) / (cfg.vMax - cfg.vMin), 0, 1), spin, hand: k, vUp };
           }
         }
-        h.last = cur;
       }
       return null;
+    },
+  };
+}
+// 揺れを取るフィルター（One Euro Filter）: 止まっているときは強くなめらかに、動いているときは遅れないように
+function createOneEuro(minCutoff = 1, beta = 0, dCutoff = 1) {
+  let x0 = null, dx0 = 0, t0 = 0;
+  const al = (c, dt) => 1 / (1 + 1 / (2 * Math.PI * c * dt));
+  return {
+    reset() { x0 = null; dx0 = 0; },
+    filter(x, t) {
+      if (x0 == null) { x0 = x; t0 = t; return x; }
+      const dt = Math.max(0.001, (t - t0) / 1000); t0 = t;
+      dx0 += al(dCutoff, dt) * ((x - x0) / dt - dx0);
+      x0 += al(minCutoff + beta * Math.abs(dx0), dt) * (x - x0);
+      return x0;
     },
   };
 }
@@ -445,16 +488,20 @@ function say(t) { $("msg").textContent = t; }
 function pop(text, cls) { const el = $("pop"); el.textContent = text; el.className = `pop ${cls}`; void el.offsetWidth; el.classList.add("show"); }
 function startGame() {
   Snd.init();
-  if (S.input === "camera" && !cam.ready) { startCamera(false); return; }
-  if (S.input === "phone" && !cam.ready && !cam.failed) { startCamera(true); return; } // スマホでも立ち位置はカメラで読む
+  // スマホを選んでいるのに1台もつながっていなければ、カメラで遊ぶ（ボタンが押せないままにしない）
+  if (S.input === "phone" && phone.conns.length === 0) { S.input = "camera"; selectGroup("input", "camera"); updatePairUI(); G.switchNote = true; }
+  if (S.input === "camera" && !cam.ready) { startCamera(false, true); return; }
+  if (S.input === "phone" && !cam.ready && !cam.failed) { startCamera(true, true); return; } // スマホでも立ち位置はカメラで読む
+  camStatus("");
   G.rolls = [[], []]; G.cur = 0; G.standing = Array(10).fill(true); G.aim = 0; G.spin = 0; G.sim = null; G.phase = "aim";
   setScreen("play"); renderSheet(); updateTurn(); sendState();
+  if (G.switchNote) { G.switchNote = false; say("スマホがつながっていないので、カメラで遊んでいます（スマホで遊ぶときは、QRコードを読んでからスタート）"); }
 }
 function updateTurn() {
   const c = rollContext(G.rolls[G.cur], S.frames);
   $("turn").innerHTML = ""; $("turn").append(document.createTextNode(S.players === 2 ? `${NAMES[G.cur]}の番` : "あなたの番"));
   const sm = document.createElement("small"); sm.textContent = `${c.frame + 1}フレーム目 ・ ${c.ball + 1}投目`; $("turn").append(sm);
-  say(S.input === "phone" ? (cam.ready ? "体ごと左右に動いて立ち位置を決め、スマホを押したまま後ろ→前へ振って離してください" : "スマホを押したまま後ろ→前へ振って離してください（立ち位置は真ん中固定）") : "立つ位置で狙いを決め、腕を下から前へ振り上げて投げてください（斜めに振るとカーブ）");
+  say(S.input === "phone" ? (cam.ready ? "体ごと左右に動いて立ち位置を決め、スマホを押したまま後ろ→前へ振って離してください" : "スマホを押したまま後ろ→前へ振って離してください（立ち位置は真ん中固定）") : "立つ位置で狙いを決め、腕を下ろして止めてから、後ろへ振って前へ振り上げると投げます（斜めに振り上げるとカーブ）");
 }
 function doThrow(t) {
   if (S.screen !== "play" || G.phase !== "aim") return false;
@@ -661,7 +708,8 @@ function sendState() {
 function updatePairUI() {
   const show = S.input === "phone";
   $("pair").hidden = !show;
-  if (!show) { $("goBtn").disabled = false; $("startNote").textContent = S.input === "camera" ? "初回はカメラの許可を求められます" : ""; return; }
+  $("goBtn").disabled = !!cam.starting;
+  if (!show) { if (!cam.starting) $("startNote").textContent = cam.err || (S.input === "camera" ? "初回はカメラの許可を求められます" : ""); return; }
   startPhone();
   const secure = location.protocol === "https:", warn = $("pairWarn");
   warn.hidden = secure && !phone.error;
@@ -673,27 +721,35 @@ function updatePairUI() {
     const q = qrcode(0, "M"); q.addData(controllerURL()); q.make();
     const img = new Image(); img.src = q.createDataURL(5, 2); img.alt = "スマホ用ページのQRコード"; $("qr").replaceChildren(img); $("qr").dataset.room = phone.room;
   }
-  $("goBtn").disabled = n === 0;
-  $("startNote").textContent = n === 0 ? "スマホがつながるとスタートできます（つながらないときはカメラで遊べます）" : "";
+  if (!cam.starting) $("startNote").textContent = n === 0 ? "スマホでQRコードを読んでください（つながらないままスタートすると、カメラで遊びます）" : "";
 }
 
 // ---------- 入力: カメラ ----------
-const cam = { ready: false, pose: null, skel: null, det: createThrowDetector(), lastTs: -1, starting: false };
-async function startCamera(optional) {
-  if (cam.starting) return; cam.starting = true; say("カメラとAIを準備中…（立ち位置を読むのに使います）");
+const cam = { ready: false, pose: null, skel: null, det: createThrowDetector(), lastTs: -1, starting: false, cxF: createOneEuro(0.3, 2) };
+// カメラの準備の様子は、メニューの中（スタートボタンの下）にも出す（メニューの裏に隠れて「押せない」と感じないように）
+function camStatus(t) {
+  say(t); if (t) $("startNote").textContent = t;
+  $("goBtn").textContent = cam.starting ? "カメラ準備中…" : "スタート"; $("againBtn").textContent = cam.starting ? "カメラ準備中…" : "もう一回";
+  $("goBtn").disabled = $("againBtn").disabled = !!cam.starting;
+}
+// startAfter: 準備ができたらゲームを始めるか（タイトル画面で先に準備しておくときは false）
+async function startCamera(optional, startAfter) {
+  if (cam.starting) { if (startAfter) cam.startAfter = true; return; }
+  cam.starting = true; cam.err = ""; cam.startAfter = !!startAfter; camStatus("カメラとAIを準備中…（数秒かかります。カメラの許可を聞かれたら「許可」を押してください）");
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
     await video.play();
     const { FilesetResolver, PoseLandmarker } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs");
     const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-    const opts = { baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" }, runningMode: "VIDEO", numPoses: 2 }; // 2人まで探して、手前の人を選ぶ
+    const opts = { baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task" }, runningMode: "VIDEO", numPoses: 2 }; // 精度の高い方のモデル。2人まで探して、手前の人を選ぶ
     try { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "GPU" } }); }
     catch { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "CPU" } }); }
-    cam.ready = true; cam.starting = false; say(""); startGame();
+    cam.ready = true; cam.starting = false; camStatus(""); updatePairUI(); if (cam.startAfter) startGame();
   } catch (e) {
     console.warn(e); cam.starting = false;
-    if (optional) { cam.failed = true; startGame(); say("カメラが使えないため、立ち位置は真ん中に固定して遊びます"); return; }
-    say(e?.name === "NotAllowedError" ? "カメラが許可されていません。アドレスバーのカメラのアイコンから許可してください" : e?.name === "NotReadableError" ? "カメラを別のアプリが使っている可能性があります" : "カメラかAIを準備できませんでした。http://localhost（Live Server）か https で開いているか確認してください");
+    const why = e?.name === "NotAllowedError" ? "カメラが許可されていません。アドレスバーのカメラのアイコンから許可してください" : e?.name === "NotReadableError" ? "カメラを別のアプリが使っている可能性があります" : e?.name === "NotFoundError" ? "カメラが見つかりません" : "カメラかAIを準備できませんでした（ネット接続と、https で開いているか確認してください）";
+    if (optional) { cam.failed = true; camStatus(""); if (cam.startAfter) { startGame(); say("カメラが使えないため、立ち位置は真ん中に固定して遊びます"); } return; }
+    cam.err = why; camStatus(why);
   }
 }
 function camSkel(lm, VW, VH) {
@@ -706,19 +762,23 @@ function camSkel(lm, VW, VH) {
 // skels: 映っている人の骨格（0〜2人）。遊んでいる人を選び、少し見失っても0.4秒は直前の位置を保つ
 function onCamPose(skels, t, VW, VH) {
   cam.VW = VW; cam.VH = VH;
-  const s = pickPlayer(skels || [], cam.cx, VW);
-  if (s) { cam.skel = s; cam.lastSeen = t; cam.cx = cam.cx == null ? bodyCenterX(s) : cam.cx * 0.5 + bodyCenterX(s) * 0.5; } // なめらかに追う
-  else if (t - (cam.lastSeen || 0) > 400) { cam.skel = null; cam.cx = null; }
+  let s = pickPlayer(skels || [], cam.cx, VW);
+  if (s) {
+    const raw = bodyCenterX(s);
+    // 体の中心が一瞬で大きく飛んだ = 別の人を読んだ／読み間違い。0.3秒続くまでは信じない（続いたら、その人に切り替える）
+    if (cam.cx != null && Math.abs(raw - cam.cx) > VW * 0.25) { cam.jumpN = (cam.jumpN || 0) + 1; if (cam.jumpN < 10) s = null; else { cam.cxF.reset(); cam.det.reset(); cam.jumpN = 0; } }
+    else cam.jumpN = 0;
+    if (s) { cam.skel = s; cam.lastSeen = t; cam.cx = cam.cxF.filter(raw / VW, t) * VW; }        // 揺れを取って、なめらかに追う
+  }
+  if (!s && t - (cam.lastSeen || 0) > 400) { cam.skel = null; cam.cx = null; cam.cxF.reset(); }
   // スマホで握ったまま通信が途切れたときに固定されたままにならないよう、4秒で解除
   if (phone.gripping && t - phone.gripAt > 4000) phone.gripping = false;
   // 投げる動作が始まったら（スマホで握ったら）立ち位置を固定する（振る勢いで体が動いて狙いがずれないように）
   const frozen = S.input === "camera" ? cam.det.armed() : phone.gripping;
   if (cam.cx != null && (S.input === "camera" || S.input === "phone") && S.screen === "play" && G.phase === "aim" && !frozen) {
-    const target = aimFromBody(cam.cx, VW);
-    G.aim += (target - G.aim) * 0.35;
+    G.aim = aimFromBody(cam.cx, VW);
   }
-  if (!s) return;
-  const ev = cam.det.push(t, s);
+  const ev = cam.det.push(t, s || null);
   if (ev && S.input === "camera") doThrow({ speed: ev.speed, spin: ev.spin });
 }
 function camTick(now) {
@@ -737,9 +797,11 @@ function drawCamPip() {
     ctx.strokeStyle = "#ffcc33"; ctx.lineWidth = 3;
     for (const [a, b] of [["lSh", "rSh"], ["lSh", "lWr"], ["rSh", "rWr"], ["lSh", "lHip"], ["rSh", "rHip"], ["lHip", "rHip"]]) { if (!seen(s[a]) || !seen(s[b])) continue; ctx.beginPath(); ctx.moveTo(sx(s[a]), sy(s[a])); ctx.lineTo(sx(s[b]), sy(s[b])); ctx.stroke(); }
     if (S.input === "camera" && seen(s.pelvis)) { // 腰の高さの線: 腕を下からこの線より上へ振り上げると投げる。構えたら緑
-      ctx.strokeStyle = cam.det.armed() ? "#44e08f" : "rgba(255,255,255,.6)"; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(px, sy(s.pelvis)); ctx.lineTo(px + pw, sy(s.pelvis)); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = cam.det.ready() ? "#44e08f" : "rgba(255,255,255,.6)"; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(px, sy(s.pelvis)); ctx.lineTo(px + pw, sy(s.pelvis)); ctx.stroke(); ctx.setLineDash([]);
     }
     for (const k of ["lWr", "rWr"]) { if ((s[k].v ?? 1) < 0.3) continue; ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(sx(s[k]), sy(s[k]), 5, 0, Math.PI * 2); ctx.fill(); }
+    if (S.input === "camera") { ctx.fillStyle = "rgba(5,6,13,.75)"; ctx.fillRect(px, py, pw, 22); ctx.fillStyle = cam.det.ready() ? "#44e08f" : "#fff"; ctx.font = "13px sans-serif"; ctx.textAlign = "left";
+      ctx.fillText(cam.det.ready() ? "準備OK → 後ろへ振って前へ振り上げる" : "腕を下ろして少し止める", px + 6, py + 16); }
   } else {
     ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(px, py, pw, ph); ctx.fillStyle = "#fff"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
     ctx.fillText("体が見えません", px + pw / 2, py + ph / 2 - 6); ctx.fillText("上半身がカメラに映るように", px + pw / 2, py + ph / 2 + 14);
@@ -786,6 +848,7 @@ $("mapBtn").addEventListener("click", () => { S.map = !S.map; $("mapBtn").setAtt
 $("soundBtn").addEventListener("click", () => { S.sound = !S.sound; $("soundBtn").setAttribute("aria-pressed", String(S.sound)); Snd.on(S.sound); });
 $("fsBtn").addEventListener("click", () => { (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.())?.catch?.(() => {}); });
 setRankView(3); renderSheet(); updatePairUI();
+document.addEventListener("pointerdown", function warm() { document.removeEventListener("pointerdown", warm); if (!cam.ready && !cam.starting && !cam.fake && !DEBUG) startCamera(true, false); });
 requestAnimationFrame(loop);
 
 if (DEBUG) {
@@ -795,7 +858,9 @@ if (DEBUG) {
     set: (o) => { if (o.input) { S.input = o.input; selectGroup("input", o.input); } if (o.players) { S.players = o.players; selectGroup("players", o.players); } if (o.frames) { S.frames = o.frames; selectGroup("frames", o.frames); } if (o.speed) S.speed = o.speed; updatePairUI(); },
     start: () => startGame(), throw: (t) => doThrow(t), controllerURL: () => phone.room && controllerURL(),
     fakeCamera: (fn, w = 1280, h = 720) => { cam.fake = fn; cam.ready = true; cam.fakeW = w; cam.fakeH = h; },
-    camState: () => ({ cx: cam.cx, seen: !!cam.skel, gripping: phone.gripping }),
+    camState: () => ({ cx: cam.cx, seen: !!cam.skel, gripping: phone.gripping, ready: cam.det.ready(), armed: cam.det.armed() }),
+    addFakePhone: () => { const c = { send: () => {}, fake: true }; phone.conns.push(c); updatePairUI(); return phone.conns.length - 1; },
+    phone: (i, msg) => onPhoneData(phone.conns[i], msg),
   };
 }
 </script>

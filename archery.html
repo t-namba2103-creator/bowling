@@ -88,7 +88,7 @@
 <main>
   <header>
     <h1>からだアーチェリー（仮デザイン）</h1>
-    <p class="sub">スマホを弓にして狙う。放った矢をカメラが追いかけて、どこに刺さったか見せます。</p>
+    <p class="sub">左手で狙い、スマホを持った右手で弦を引いて、ボタンを離すと矢が飛ぶ。放った矢をカメラが追いかけて、どこに刺さったか見せます。</p>
   </header>
 
   <div class="stage" id="stage">
@@ -102,9 +102,9 @@
     <div class="menu" id="mTitle">
       <div class="inner">
         <h2>からだアーチェリー</h2>
-        <div class="row"><span class="lbl">操作方法</span>
-          <button class="air" data-input="phone" aria-pressed="true">スマホ＋カメラ<small>スマホで狙い、もう片方の手で弦を引く</small></button>
-          <button class="air" data-input="camera" aria-pressed="false">カメラだけ<small>弓を引くポーズで狙う（試作）</small></button>
+        <div class="row"><span class="lbl">利き手（スマホを持って弦を引く手）</span>
+          <button class="air" data-hand="right" aria-pressed="true">右利き<small>右手にスマホ・左手で狙う</small></button>
+          <button class="air" data-hand="left" aria-pressed="false">左利き<small>左手にスマホ・右手で狙う</small></button>
         </div>
         <div class="row"><span class="lbl">難易度</span>
           <button class="air" data-level="1" aria-pressed="true">初級<small>18m ・ 無風</small></button>
@@ -122,7 +122,7 @@
         <div class="pair" id="pair">
           <div class="qr" id="qr"></div>
           <div>
-            <p>スマホのカメラでQRコードを読み取ってください。</p>
+            <p>スマホのカメラでQRコードを読み取ってください。<br><small class="muted">スマホがなくても、PCのスペースキーをスマホのボタンの代わりにできます。</small></p>
             <p>部屋番号: <code id="roomCode">準備中…</code></p>
             <p id="pairStatus">接続待ち</p>
             <p class="warn" id="pairWarn" hidden></p>
@@ -177,9 +177,10 @@
     <div class="card">
       <h3>あそびかた</h3>
       <p class="help">
-        <b>スマホ＋カメラ:</b> スマホを持った手（弓を持つ手）を画面に向けてのばし、ボタンを押したままにします。スマホの向きを変えると照準が動きます。もう片方の手で弦をつまむように、顔の横まで引くと弓が引けます（PCのカメラで読み取り）。狙いが合ったらスマホの指を離すと発射。カメラが使えないときは、長押しの時間で引きます。<br>
-        <b>カメラ（試作）:</b> 両手を胸の前で合わせて構え、片手を顔の横まで引いて止めます。前の手を動かして狙い、引いた手をパッと離すと発射です。<br>
-        <b>コツ:</b> 照準は少しずつ揺れます。揺れが真ん中に来た瞬間に離しましょう。引きが足りないと矢が下に落ちます。風があると矢が流されるので、風上を狙います。長く引きすぎると腕が疲れて揺れが大きくなります。
+        <b>構え:</b> PCのカメラに上半身と両手が映るように立ちます。右利きの人は、右手にスマホを持ち、左手を的に向けてのばします。<br>
+        <b>狙う:</b> 左手（の指先）を動かすと照準が動きます。<br>
+        <b>引く・放す:</b> スマホのボタンを押したまま（弦をつかむ）、右手を顔の横まで引きます。狙いが合ったらボタンを離すと矢が飛びます。引きが足りないと矢が下に落ちます。<br>
+        <b>コツ:</b> 照準は少し揺れるので、真ん中に来た瞬間に放します。風があると矢が流されるので、風上を狙います。長く引きすぎると腕が疲れて揺れが大きくなります。左下のワイプで、カメラが手を読めているか確認できます。
       </p>
     </div>
   </section>
@@ -257,82 +258,58 @@ function swayAt(amp, t, ph, drawSec) {
   return { x: amp * f * (0.6 * Math.sin(0.8 * t + ph[0]) + 0.4 * Math.sin(1.7 * t + ph[1])), y: amp * f * (0.6 * Math.sin(0.65 * t + ph[2]) + 0.4 * Math.sin(2.1 * t + ph[3])) };
 }
 const viewW = (D) => 3.2 + 0.06 * D;           // 狙う画面に、的の位置で何m分が見えるか（遠いほど的が小さく見える: 18m → 4.3m、70m → 7.4m）
-const aimGainPhone = (D) => 0.04 + 0.0015 * D;   // スマホを1度向けると、的の位置で何m動くか（18m → 6.7cm、70m → 14.5cm）。手の震え(0.5〜1度)で照準が暴れないよう低め
-const aimGainCam = (D) => 0.6 + 0.004 * D;       // 前の手を肩幅1つ分動かすと、的の位置で何m動くか（18m → 67cm）。カメラの点の揺れが出にくいよう低め
-const DRAW_MS = 900;                              // スマホ: 押してから引ききるまでの時間
-const drawPowerFromHold = (ms) => clamp(ms / DRAW_MS, 0, 1);
+const aimGainHand = (D) => 1.8 + 0.02 * D;       // 狙う手を肩幅1つ分動かすと、的の位置で何m動くか（18m → 2.2m、70m → 3.2m）
 // 射つ順番: 1本目 P1→P2、2本目 P1→P2 …
 function turnOrder(players, n) { const o = []; for (let i = 0; i < n; i++) for (let p = 0; p < players; p++) o.push({ p, i }); return o; }
 function summarize(list) { return { total: list.reduce((m, a) => m + a.score, 0), xs: list.filter((a) => a.isX).length, tens: list.filter((a) => a.score === 10).length }; }
 
-// カメラで弓を引く動作を読む。s: 画面上の骨格(px、鏡写し)＋ world: 手首の3D位置(m、あれば)
-// 構え（両手を胸の前で合わせる）→ 引く（片手が離れていく）→ 止める（引ききって静止）→ 引いた手をパッと動かす = 発射
-function createDrawDetector() {
-  let phase = "idle", setSince = 0, ref = null, bow = null, hist = [], steadySince = 0, anchored = false, lastSeen = 0, aim = { x: 0, y: 0 }, power = 0;
+// 狙う手（弓を持つ手）の位置 → 照準（肩幅を1とした単位。的の真ん中が 0,0、右・上がプラス）
+// bow: 狙う手 "l"（右利き）/"r"（左利き）。手首と人差し指の中間を「指先」とする。
+// 肩の真ん中を基準にして、腕を画面の真ん中に向けてのばしたときの手の位置（肩幅 0.35 外側・0.1 上）を「的の真ん中」とする。
+// ref: なめらかにした肩の位置 {x, y, sw}（なければ今の骨格の肩を使う）。手が見えない・下ろしているときは null
+const AIM_NEUTRAL = { x: 0.35, y: 0.1 };
+function aimFromHand(s, bow, ref) {
   const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
-  function powerOf(s, sw) {
-    const d2 = Math.hypot(s.lWr.x - s.rWr.x, s.lWr.y - s.rWr.y) / sw;
-    let p = clamp((d2 - 0.35) / 0.75, 0, 1);                                   // 画面上の両手の距離（肩幅いくつ分か）
-    if (s.world && s.world.lWr && s.world.rWr) { const a = s.world.lWr, b = s.world.rWr; p = Math.max(p, clamp((Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) - 0.18) / 0.37, 0, 1)); } // 奥行きも含めた距離
-    return p;
-  }
-  const reset = () => { phase = "idle"; setSince = 0; ref = null; bow = null; hist = []; steadySince = 0; anchored = false; aim = { x: 0, y: 0 }; power = 0; };
+  if (!s) return null;
+  const w = s[bow + "Wr"], f = s[bow + "Idx"];
+  if (!ok(w)) return null;
+  const r = ref || (ok(s.lSh) && ok(s.rSh) ? { x: (s.lSh.x + s.rSh.x) / 2, y: (s.lSh.y + s.rSh.y) / 2, sw: Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) } : null);
+  if (!r || !r.sw) return null;
+  const P = ok(f) ? { x: (w.x + f.x) / 2, y: (w.y + f.y) / 2 } : w;
+  if (P.y > r.y + 0.9 * r.sw) return null;                                     // 手を下ろしている
+  const side = bow === "l" ? -1 : 1;                                          // 鏡写しの画面では、左手は画面の左側
+  return { x: (P.x - r.x) / r.sw - side * AIM_NEUTRAL.x, y: (r.y - P.y) / r.sw - AIM_NEUTRAL.y };
+}
+// 弦を引く強さ 0〜1: スマホを持った手（引く手）が、狙う手からどれだけ離れたか。顔の横まで引けばいっぱい。
+// 引く手を下ろしているときは 0。手が見えなければ null
+function pullPower(s, bow) {
+  const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
+  const dr = bow === "l" ? "r" : "l";
+  if (!s || !ok(s[bow + "Wr"]) || !ok(s[dr + "Wr"]) || !ok(s.lSh) || !ok(s.rSh)) return null;
+  const B = s[bow + "Wr"], Dh = s[dr + "Wr"], sw = Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) || 1, shY = (s.lSh.y + s.rSh.y) / 2;
+  if (Dh.y > shY + 1.1 * sw) return 0;
+  const d2 = Math.hypot(Dh.x - B.x, Dh.y - B.y) / sw;
+  let p = clamp((d2 - 0.2) / 0.45, 0, 1);                                                     // 画面上の距離（肩幅0.65個分でいっぱい）
+  if (s.world && s.world.lWr && s.world.rWr) { const a = s.world.lWr, b = s.world.rWr; p = Math.max(p, clamp((Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) - 0.15) / 0.3, 0, 1)); } // 奥行きも含めた距離（45cmでいっぱい）
+  // 引く手が顔のすぐ横（鼻より引く手の側・鼻の高さ付近）にあって、狙う手から十分離れている = 引ききった
+  const side = dr === "r" ? 1 : -1;
+  if (ok(s.nose) && d2 > 0.5 && (Dh.x - s.nose.x) * side / sw >= 0.05 && Math.hypot(Dh.x - s.nose.x, Dh.y - s.nose.y) / sw < 0.5) p = Math.max(p, 1);
+  return p;
+}
+// 揺れを取るフィルター（One Euro Filter）: 止まっているときは強くなめらかに、動いているときは遅れないように
+function createOneEuro(minCutoff = 1, beta = 0, dCutoff = 1) {
+  let x0 = null, dx0 = 0, t0 = 0;
+  const al = (c, dt) => 1 / (1 + 1 / (2 * Math.PI * c * dt));
   return {
-    reset,
-    state: () => ({ phase, power, aim: { ...aim }, anchored, bow }),
-    push(t, s) {
-      if (!s || !ok(s.lWr) || !ok(s.rWr) || !ok(s.lSh) || !ok(s.rSh)) {
-        if (phase !== "idle" && t - lastSeen > 700) { reset(); return { type: "cancel", reason: "lost" }; }
-        return null;
-      }
-      lastSeen = t;
-      const sw = Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) || 1, shY = (s.lSh.y + s.rSh.y) / 2;
-      power = powerOf(s, sw);
-      if (phase === "idle") {
-        const raised = s.lWr.y < shY + 1.0 * sw && s.rWr.y < shY + 1.0 * sw;
-        const together = Math.hypot(s.lWr.x - s.rWr.x, s.lWr.y - s.rWr.y) < 0.7 * sw;
-        if (raised && together) {
-          if (!setSince) setSince = t;
-          if (t - setSince >= 300) { phase = "set"; ref = { l: { x: s.lWr.x, y: s.lWr.y }, r: { x: s.rWr.x, y: s.rWr.y } }; bow = null; hist = []; anchored = false; steadySince = 0; aim = { x: 0, y: 0 }; return { type: "set" }; }
-        } else setSince = 0;
-        return null;
-      }
-      if (s.lWr.y > shY + 1.5 * sw && s.rWr.y > shY + 1.5 * sw) { reset(); return { type: "cancel", reason: "down" }; } // 両手を下ろした = やめる
-      // 前の手（弓を持つ手）= 構えた位置からあまり動いていない方
-      // 引き始めは両手とも少し動くので、ある程度引いてから（半分くらい）決める
-      if (!bow && power >= 0.5) bow = Math.hypot(s.lWr.x - ref.l.x, s.lWr.y - ref.l.y) <= Math.hypot(s.rWr.x - ref.r.x, s.rWr.y - ref.r.y) ? "l" : "r";
-      const B = bow && s[bow + "Wr"], Dh = bow && s[(bow === "l" ? "r" : "l") + "Wr"];
-      if (bow) aim = { x: (B.x - ref[bow].x) / sw, y: (ref[bow].y - B.y) / sw };
-      const prev = hist[hist.length - 1];
-      const speed = prev && Dh && prev.dh ? Math.hypot(Dh.x - prev.dh.x, Dh.y - prev.dh.y) / sw / Math.max(0.001, (t - prev.t) / 1000) : 0; // 引いた手の速さ（肩幅/秒）
-      hist.push({ t, power, dh: Dh ? { x: Dh.x, y: Dh.y } : null, speed });
-      while (hist.length && hist[0].t < t - 1000) hist.shift();
-      if (phase === "set" && power >= 0.2) phase = "draw";
-      if (phase === "draw") {
-        if (anchored && speed > 3.5) {                                          // 止めた後に、引いた手がパッと動いた = 放した
-          const before = hist.filter((h) => h.t >= t - 400 && h.t <= t - 60);
-          const pw = before.length ? Math.max(...before.map((h) => h.power)) : power; // 離す動きで手が離れる分は数えない（止めていたときの引き）
-          reset(); return { type: "release", power: pw };
-        }
-        if (power >= 0.45 && speed < 1.2) { if (!steadySince) steadySince = t; if (t - steadySince >= 300) anchored = true; }
-        else if (speed >= 1.2 && !anchored) steadySince = 0;
-        if (power < 0.3) { anchored = false; steadySince = 0; }
-        if (power < 0.12) phase = "set";
-      }
-      return null;
+    reset() { x0 = null; dx0 = 0; },
+    filter(x, t) {
+      if (x0 == null) { x0 = x; t0 = t; return x; }
+      const dt = Math.max(0.001, (t - t0) / 1000); t0 = t;
+      dx0 += al(dCutoff, dt) * ((x - x0) / dt - dx0);
+      x0 += al(minCutoff + beta * Math.abs(dx0), dt) * (x - x0);
+      return x0;
     },
   };
-}
-// スマホ＋カメラ: スマホを持った手（前に伸ばす）と、もう片方の手（顔の横まで引く）の距離 → 引きの強さ 0〜1
-// どちらの手でスマホを持っても同じ（両手の距離だけを見る）。片手が下がっているときは「引いていない」= 0。手が見えなければ null
-function pullPower(s) {
-  const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
-  if (!s || !ok(s.lWr) || !ok(s.rWr) || !ok(s.lSh) || !ok(s.rSh)) return null;
-  const sw = Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) || 1, shY = (s.lSh.y + s.rSh.y) / 2;
-  if (s.lWr.y > shY + 1.1 * sw || s.rWr.y > shY + 1.1 * sw) return 0;
-  let p = clamp((Math.hypot(s.lWr.x - s.rWr.x, s.lWr.y - s.rWr.y) / sw - 0.25) / 0.55, 0, 1);       // 画面上の距離（肩幅0.8個分でいっぱい）
-  if (s.world && s.world.lWr && s.world.rWr) { const a = s.world.lWr, b = s.world.rWr; p = Math.max(p, clamp((Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) - 0.15) / 0.35, 0, 1)); } // 奥行きも含めた距離（50cmでいっぱい）
-  return p;
 }
 // 映っている人の中から遊んでいる人を選ぶ（手前に大きく映っている人。前回の位置に近い人を優先）
 function bodyCenterX(s) {
@@ -359,8 +336,10 @@ const $ = (id) => document.getElementById(id);
 const stage = $("stage"), cv = $("cv"), ctx = cv.getContext("2d"), video = $("video");
 const W = 1280, H = 720; cv.width = W; cv.height = H;
 const params = new URLSearchParams(location.search), DEBUG = params.has("debug");
-const S = { input: "phone", players: 1, level: 1, arrows: 6, speed: 1, sound: true, screen: "title" };
-const G = { shots: [[], []], order: [], k: 0, winds: [], phase: "idle", drawing: false, inp: { x: 0, y: 0 }, reticle: { x: 0, y: 0 }, retHist: [], start: { x: 0, y: 0 }, ph: [0, 0, 0, 0], windNow: 0 };
+const S = { hand: "right", players: 1, level: 1, arrows: 6, speed: 1, sound: true, screen: "title" };
+const bowHand = () => (S.hand === "right" ? "l" : "r");                       // 狙う手
+const bowWord = () => (S.hand === "right" ? "左手" : "右手"), drawWord = () => (S.hand === "right" ? "右手" : "左手");
+const G = { shots: [[], []], order: [], k: 0, winds: [], phase: "idle", drawing: false, reticle: null, retHist: [], ph: [0, 0, 0, 0], windNow: 0 };
 const NAMES = ["プレイヤー1", "プレイヤー2"], PCOL = ["#ffcc33", "#4fd6ff"];
 const L = () => LEVELS[S.level];
 const curP = () => G.order[G.k]?.p ?? 0, curI = () => G.order[G.k]?.i ?? 0;
@@ -423,19 +402,14 @@ function say(t) { if ($("msg").textContent !== t) $("msg").textContent = t; }
 function pop(text, cls) { const el = $("pop"); el.textContent = text; el.className = `pop ${cls}`; void el.offsetWidth; el.classList.add("show"); }
 function startGame() {
   Snd.init();
-  if (S.input === "camera" && !cam.ready) { startCamera(false); return; }
-  if (S.input === "phone" && !cam.ready && !cam.failed) { startCamera(true); return; } // スマホでも、弦を引く動きはカメラで読む
+  if (!cam.ready) { startCamera(true); return; }                              // カメラは必須（狙う・引くを読む）
   G.shots = [[], []]; G.order = turnOrder(S.players, S.arrows); G.k = 0; G.winds = makeWinds(S.level, S.arrows, Math.random);
   setScreen("play"); beginAim(); renderSheet();
 }
 function beginAim() {
   const now = performance.now();
-  G.phase = "aim"; G.aimT0 = now; G.drawing = false; G.inp = { x: 0, y: 0 }; G.inpT = { x: 0, y: 0 }; G.retHist = []; G.shot = null;
-  // 照準は的から少し外れた所から始まる（何もしないで放っても真ん中には当たらない）
-  const a = Math.random() * Math.PI * 2, r = 0.2 + Math.random() * 0.15;
-  G.start = S.input === "camera" ? { x: 0, y: 0 } : { x: Math.cos(a) * r, y: Math.sin(a) * r * 0.8 }; // カメラだけ: 引ききった瞬間に照準が的の真ん中から始まる
+  G.phase = "aim"; G.aimT0 = now; G.drawing = false; G.retHist = []; G.shot = null; G.noteUntil = 0;
   G.ph = [0, 1, 2, 3].map(() => Math.random() * 6.28);
-  cam.det.reset();
   setCamView(true); updateTurn(); renderSheet(); sendState();
 }
 function updateTurn() {
@@ -443,22 +417,33 @@ function updateTurn() {
   const sm = document.createElement("small"); sm.textContent = `${curI() + 1}本目 / ${S.arrows}本`; $("turn").append(sm);
   $("info").textContent = `${L().name} ・ ${L().D}m`;
 }
+// 弦をつかむ（スマホのボタンを押す／スペースキー）
 function beginDraw(by) {
   if (S.screen !== "play" || G.phase !== "aim" || G.drawing) return false;
-  const now = performance.now();
-  G.drawing = true; G.drawBy = by; G.drawT0 = now; G.camRef = null; G.lastAimMsg = now; G.inp = { x: 0, y: 0 }; G.inpT = { x: 0, y: 0 }; G.fullPlayed = false; G.noteUntil = 0; // 直前の注意は消す
+  G.drawing = true; G.drawBy = by; G.drawT0 = performance.now(); G.fullPlayed = false; G.noteUntil = 0;
   Snd.draw(); return true;
 }
-function cancelDraw(text) { if (!G.drawing) return; G.drawing = false; G.inp = { x: 0, y: 0 }; G.inpT = { x: 0, y: 0 }; if (text) { say(text); G.noteUntil = performance.now() + 2500; } sendState(); }
-// スマホ＋カメラのとき、カメラで引きを読めているか（読めなければ、長押しの時間で引く）
-const camPull = () => S.input === "phone" && cam.ready && cam.pull != null && performance.now() - (cam.pullAt || 0) < 500;
-function currentPower(now) { return !G.drawing ? 0 : G.drawBy === "camera" ? cam.det.state().power : camPull() ? cam.pull : drawPowerFromHold(now - G.drawT0); }
-// 放す。照準は少し前（指を離す・手を動かす瞬間のブレを避けるため）の位置を使う
+function cancelDraw(text) { if (!G.drawing) return; G.drawing = false; if (text) { say(text); G.noteUntil = performance.now() + 3000; } sendState(); }
+const camOk = (now = performance.now()) => cam.ready && cam.pull != null && now - (cam.pullAt || 0) < 500;
+function currentPower() { return G.drawing && camOk() ? cam.pull : 0; }
+// ボタンを離した（スマホ／スペースキー）。引きの強さは離す直前0.25秒の最大（離す瞬間に手が動いた分は数えない）
+function doRelease() {
+  if (!G.drawing) return;
+  const now = performance.now();
+  if (now - G.drawT0 < 250) { cancelDraw("押してすぐ離すと射てません。押したまま引いてから離してください"); return; }
+  if (!camOk(now)) { cancelDraw("カメラで両手が見えていません。上半身と両手が映るように立ってください"); return; }
+  if (!G.reticle) { cancelDraw(`${bowWord()}（狙う手）が見えません。${bowWord()}を的に向けてのばしてください`); return; }
+  const recent = cam.pullHist.filter((h) => h.t >= now - 250 && h.t <= now - 20), pw = recent.length ? Math.max(...recent.map((h) => h.p)) : cam.pull;
+  if (pw < 0.15) { cancelDraw(`弦を引いていません。スマホを持った${drawWord()}を顔の横まで引いてから、ボタンを離してください`); return; }
+  release(pw);
+}
+// 放す。照準は少し前（ボタンを離す瞬間の手のブレを避けるため）の位置を使う
 function release(power, aimOverride) {
   if (S.screen !== "play" || G.phase !== "aim") return false;
-  const now = performance.now(), back = G.drawBy === "camera" ? 150 : 100;
+  const now = performance.now();
   let aim = aimOverride;
-  if (!aim) { const h = G.retHist.filter((q) => q.t <= now - back); aim = h.length ? h[h.length - 1] : G.reticle; }
+  if (!aim) { const h = G.retHist.filter((q) => q.t <= now - 120); aim = h.length ? h[h.length - 1] : G.reticle; }
+  if (!aim) return false;
   const sim = simulateArrow({ ax: aim.x, ay: aim.y, power }, G.windNow, L().D);
   G.shot = { sim, power, wind: G.windNow, p: curP(), i: curI(), aim: { x: aim.x, y: aim.y } };
   G.drawing = false; G.phase = "flight"; G.tau = 0; G.flightLast = now;
@@ -622,19 +607,26 @@ function drawWindHud() {
   ctx.restore();
 }
 function drawAimHud(now) {
+  if (!G.reticle) return;
   const D = L().D, rp = proj(G.reticle.x, TARGET.y + G.reticle.y, D); if (!rp) return;
-  const pw = currentPower(now), full = G.drawing && pw >= 1;
-  ctx.save(); ctx.lineWidth = 3; ctx.strokeStyle = full ? "#ffcc33" : G.drawing ? "#fff" : "rgba(255,255,255,.55)"; if (!G.drawing) ctx.setLineDash([6, 6]);
-  ctx.beginPath(); ctx.arc(rp.x, rp.y, 22, 0, Math.PI * 2); ctx.stroke();
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.beginPath(); ctx.moveTo(rp.x + dx * 10, rp.y + dy * 10); ctx.lineTo(rp.x + dx * 34, rp.y + dy * 34); ctx.stroke(); }
-  ctx.setLineDash([]); ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(rp.x, rp.y, 2.5, 0, Math.PI * 2); ctx.fill();
+  const pw = currentPower(), full = G.drawing && pw >= 1;
+  // 照準: 黒いふちどりの上に色を重ねる（的の金色・白の上でも見えるように）
+  const col = full ? "#ffcc33" : G.drawing ? "#fff" : "rgba(255,255,255,.85)";
+  ctx.save();
+  const mark = (w, c) => {
+    ctx.lineWidth = w; ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(rp.x, rp.y, 22, 0, Math.PI * 2); ctx.stroke();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.beginPath(); ctx.moveTo(rp.x + dx * 10, rp.y + dy * 10); ctx.lineTo(rp.x + dx * 34, rp.y + dy * 34); ctx.stroke(); }
+  };
+  if (!G.drawing) ctx.setLineDash([6, 6]);
+  mark(6, "rgba(0,0,0,.85)"); mark(3, col); ctx.setLineDash([]);
+  ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(rp.x, rp.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(rp.x, rp.y, 2.5, 0, Math.PI * 2); ctx.fill();
   if (G.drawing) { // 引きのゲージ
     const bw = 320, bx = W / 2 - bw / 2, by = H - 92;
     ctx.fillStyle = "rgba(5,6,13,.75)"; ctx.fillRect(bx - 8, by - 26, bw + 16, 44);
     ctx.fillStyle = "rgba(255,255,255,.2)"; ctx.fillRect(bx, by, bw, 12); ctx.fillStyle = full ? "#ffcc33" : "#fff"; ctx.fillRect(bx, by, bw * pw, 12);
     ctx.fillStyle = "#fff"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
     const tired = (now - G.drawT0) / 1000 > 5;
-    ctx.fillText(full ? (tired ? "腕が疲れてきた！早めに放そう" : "いっぱいに引けた！ 狙って放す") : `引いています… ${Math.round(pw * 100)}%`, W / 2, by - 8);
+    ctx.fillText(full ? (tired ? "腕が疲れてきた！早めに放そう" : "いっぱいに引けた！ 狙ってボタンを離す") : `弦を引いています… ${Math.round(pw * 100)}%（顔の横まで引く）`, W / 2, by - 8);
   }
   ctx.restore();
 }
@@ -667,7 +659,6 @@ function render(now) {
     else if (G.phase === "aim") drawFaceDiagram(W - 92, H - 92, 62, p, -1, "これまで");
   }
   if (cam.ready && S.screen !== "result") drawCamPip(now);
-  if (air.cursor) { ctx.fillStyle = "rgba(255,204,51,.9)"; ctx.beginPath(); ctx.arc(air.cursor.x, air.cursor.y, 16, 0, Math.PI * 2); ctx.fill(); }
 }
 
 // 毎フレームの進行
@@ -676,17 +667,17 @@ function step(now) {
   if (G.phase === "aim") {
     const t = (now - G.aimT0) / 1000, w = G.winds[curI()];
     G.windNow = w ? windAt(w, t) : 0;
-    const sm = S.input === "camera" ? 0.15 : 0.3;   // なめらかに追いかける（カメラは点が揺れやすいので強めに）
-    G.inp = { x: G.inp.x + (G.inpT.x - G.inp.x) * sm, y: G.inp.y + (G.inpT.y - G.inp.y) * sm };
     const sw = swayAt(L().sway, t, G.ph, G.drawing ? (now - G.drawT0) / 1000 : 0);
-    const hw = viewW(L().D) / 2 - 0.15, hh = viewW(L().D) * 9 / 32 - 0.15;   // 照準は画面の外に出ない
-    G.reticle = { x: clamp(G.start.x + G.inp.x + sw.x, -hw, hw), y: clamp(G.start.y + G.inp.y + sw.y, -hh, hh) };
-    G.retHist.push({ t: now, x: G.reticle.x, y: G.reticle.y }); while (G.retHist.length && G.retHist[0].t < now - 1000) G.retHist.shift();
-    if (G.drawing && !G.fullPlayed && currentPower(now) >= 1) { G.fullPlayed = true; Snd.full(); sendFx("full"); }
-    if (G.drawing && G.drawBy === "phone" && now - G.lastAimMsg > 3000) cancelDraw("スマホからの信号が途切れました。もう一度ボタンを押してください");
+    const hw = viewW(L().D) / 2 - 0.15, hh = viewW(L().D) * 9 / 32 - 0.15, k = aimGainHand(L().D);   // 照準は画面の外に出ない
+    const seen = cam.aim && now - cam.aimAt < 400;
+    G.reticle = seen ? { x: clamp(cam.aim.x * k + sw.x, -hw, hw), y: clamp(cam.aim.y * k + sw.y, -hh, hh) } : null;
+    if (G.reticle) { G.retHist.push({ t: now, x: G.reticle.x, y: G.reticle.y }); while (G.retHist.length && G.retHist[0].t < now - 1000) G.retHist.shift(); }
+    if (G.drawing && !G.fullPlayed && currentPower() >= 1) { G.fullPlayed = true; Snd.full(); sendFx("full"); }
     if (G.noteUntil && now < G.noteUntil) { /* 直前の注意を表示中 */ }
-    else if (S.input === "phone") say(G.drawing ? (camPull() ? ((cam.pull ?? 0) < 0.15 ? "もう片方の手で、弦を顔の横まで引いて！" : "") : "") : camPull() || (cam.ready && !cam.failed) ? "スマホを持った手を画面に向けてのばし、ボタンを押したまま、もう片方の手で弦を引く → 指を離すと発射" : "スマホを画面に向けて、ボタンを長押しで引き、狙って指を離すと発射");
-    else { const st = cam.det.state(); say(!cam.skel ? "上半身がカメラに映るように立ってください" : st.phase === "idle" ? "両手を胸の前で合わせて構えてください" : st.phase === "set" ? "片手を顔の横まで引いてください" : st.anchored ? "照準は真ん中から。前の手を少し動かして狙い、引いた手をパッと離す！" : "顔の横まで引いて止めてください（止めると照準が動き出します）"); }
+    else if (!cam.skel) say("上半身と両手がカメラに映るように立ってください");
+    else if (!G.reticle) say(`${bowWord()}を的に向けてのばしてください（${bowWord()}で狙います）`);
+    else if (!G.drawing) say(`${bowWord()}で狙い、スマホのボタンを押したまま${drawWord()}を顔の横まで引いて、離すと発射${phone.conns.length ? "" : "（スペースキーでも代わりにできます）"}`);
+    else say(currentPower() < 0.15 ? `スマホを持った${drawWord()}を、顔の横まで引いて！` : "");
   } else if (G.phase === "flight") {
     const dt = Math.min(0.05, (now - G.flightLast) / 1000); G.flightLast = now;
     const s = G.shot.sim, a = arrowAt(s, G.tau), slow = L().D - a.z < 4 ? 0.35 : 1, rate = clamp(s.t / 1.1, 0.3, 1);
@@ -725,60 +716,56 @@ function startPhone() {
   phone.peer.on("connection", (conn) => {
     conn.on("open", () => { if (phone.conns.length >= 2) { conn.close(); return; } phone.conns.push(conn); updatePairUI(); sendState(); Snd.click(); });
     conn.on("data", (d) => onPhoneData(conn, d));
-    conn.on("close", () => { phone.conns = phone.conns.filter((c) => c !== conn); updatePairUI(); });
+    conn.on("close", () => { phone.conns = phone.conns.filter((c) => c !== conn); if (G.drawing && G.drawBy === "phone") cancelDraw("スマホとの接続が切れました"); updatePairUI(); });
   });
 }
 function onPhoneData(conn, d) {
   if (!d || typeof d !== "object") return;
-  const idx = phone.conns.indexOf(conn), now = performance.now();
+  const idx = phone.conns.indexOf(conn);
   const mine = phone.conns.length < 2 || idx === curP();            // スマホ2台なら、自分の番のスマホだけ操作できる
-  if (d.t === "start") { if (S.screen === "title" || S.screen === "result") { S.input = "phone"; selectGroup("input", "phone"); startGame(); } return; }
-  if (!mine || S.input !== "phone") return;
+  if (d.t === "start") { if (S.screen === "title" || S.screen === "result") startGame(); return; }
+  if (!mine) return;
   if (d.t === "draw" && d.on) beginDraw("phone");
   else if (d.t === "draw" && !d.on) cancelDraw("");
-  else if (d.t === "aim" && G.drawing && G.drawBy === "phone") {
-    const k = aimGainPhone(L().D); G.lastAimMsg = now;
-    G.inpT = { x: clamp(Number(d.x) || 0, -60, 60) * k, y: clamp(Number(d.y) || 0, -60, 60) * k };
-  } else if (d.t === "release" && G.drawing && G.drawBy === "phone") {
-    const held = now - G.drawT0;
-    if (held < 250) { cancelDraw("押してすぐ離すと射てません。押したまま狙ってから離してください"); return; }
-    if (camPull()) {
-      const recent = cam.pullHist.filter((h) => h.t >= now - 250 && h.t <= now - 20), pw = recent.length ? Math.max(...recent.map((h) => h.p)) : cam.pull;
-      if (pw < 0.15) { cancelDraw("弦を引いていません。もう片方の手を顔の横まで引いてから、指を離してください"); return; }
-      release(pw);
-    } else release(drawPowerFromHold(held));
-  }
+  else if (d.t === "release" && G.drawBy === "phone") doRelease();
 }
 function sendFx(kind, text = "") {
   phone.conns.forEach((c, i) => { if (phone.conns.length < 2 || i === curP()) { try { c.send({ t: "fx", kind, text }); } catch { /* 切れていたら無視 */ } } });
 }
 function sendState() {
-  const text = S.screen !== "play" ? (S.screen === "result" ? "ゲーム終了。「もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」") : G.phase === "aim" ? `${S.players === 2 ? NAMES[curP()] + "の番" : "あなたの番"}：画面に向けて押したまま、もう片方の手で弦を引いて、指を離すと発射` : "矢が飛んでいます…";
-  phone.conns.forEach((c, i) => { try { c.send({ t: "state", text, canDraw: S.screen === "play" && G.phase === "aim" && (phone.conns.length < 2 || i === curP()), you: phone.conns.length === 2 ? NAMES[i] : "", screen: S.screen, drawMs: DRAW_MS }); } catch { /* 切れていたら無視 */ } });
+  const text = S.screen !== "play" ? (S.screen === "result" ? "ゲーム終了。「もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」") : G.phase === "aim" ? `${S.players === 2 ? NAMES[curP()] + "の番" : "あなたの番"}：${bowWord()}で狙い、ボタンを押したままスマホを顔の横まで引いて、離すと発射` : "矢が飛んでいます…";
+  phone.conns.forEach((c, i) => { try { c.send({ t: "state", text, canDraw: S.screen === "play" && G.phase === "aim" && (phone.conns.length < 2 || i === curP()), you: phone.conns.length === 2 ? NAMES[i] : "", screen: S.screen, hand: S.hand }); } catch { /* 切れていたら無視 */ } });
 }
 function updatePairUI() {
-  const show = S.input === "phone";
-  $("pair").hidden = !show;
-  if (!show) { $("goBtn").disabled = false; $("startNote").textContent = "初回はカメラの許可を求められます。メニューは手をかざして選べます"; return; }
   startPhone();
   const secure = location.protocol === "https:", warn = $("pairWarn");
   warn.hidden = secure && !phone.error;
-  warn.textContent = phone.error || (secure ? "" : "このページは https で公開されていないため、スマホから開けない／センサーが使えない可能性があります（GitHub Pages などで公開してください）");
+  warn.textContent = phone.error || (secure ? "" : "このページは https で公開されていないため、スマホから開けない可能性があります（GitHub Pages などで公開してください）");
   $("roomCode").textContent = phone.room && phone.peer?.open ? phone.room.replace("arch-", "") : "準備中…";
   const n = phone.conns.length;
-  $("pairStatus").innerHTML = n ? `<span class="ok">スマホ ${n} 台が接続中</span>${S.players === 2 && n === 1 ? "（1台を交代で使います）" : ""}` : "接続待ち";
+  $("pairStatus").innerHTML = n ? `<span class="ok">スマホ ${n} 台が接続中</span>${S.players === 2 && n === 1 ? "（1台を交代で使います）" : ""}` : "接続待ち（スマホがなくてもスペースキーで遊べます）";
   if (phone.peer?.open && typeof qrcode !== "undefined" && $("qr").dataset.room !== phone.room) {
     const q = qrcode(0, "M"); q.addData(controllerURL()); q.make();
     const img = new Image(); img.src = q.createDataURL(5, 2); img.alt = "スマホ用ページのQRコード"; $("qr").replaceChildren(img); $("qr").dataset.room = phone.room;
   }
-  $("goBtn").disabled = n === 0;
-  $("startNote").textContent = n === 0 ? "スマホがつながるとスタートできます" : "";
+  $("goBtn").disabled = !!cam.starting;                                       // スタートはいつでも押せる（カメラの準備中だけ待つ）
+  if (!cam.starting) $("startNote").textContent = cam.err || (cam.ready ? "" : "スタートを押すとカメラを使います（初回は許可を聞かれます）");
 }
 
-// ---------- 入力: カメラ（試作） ----------
-const cam = { ready: false, pose: null, skel: null, det: createDrawDetector(), lastTs: -1, starting: false, cx: null, pull: null, pullAt: 0, pullHist: [] };
-async function startCamera(optional) {
-  if (cam.starting) return; cam.starting = true; say("カメラとAIを準備中…（弦を引く動きを読むのに使います）");
+// ---------- 入力: カメラ（狙う手・引く手を読む） ----------
+const cam = { ready: false, pose: null, skel: null, lastTs: -1, starting: false, cx: null, pull: null, pullAt: 0, pullHist: [], aim: null, aimAt: 0,
+  fx: createOneEuro(0.3, 0.3), fy: createOneEuro(0.3, 0.3), ref: null };
+// カメラの準備の様子は、メニューの中（スタートボタンの下）にも出す（メニューの裏に隠れて「押せない」と感じないように）
+function camStatus(t) {
+  say(t); if (t) $("startNote").textContent = t;
+  $("goBtn").textContent = cam.starting ? "カメラ準備中…" : "スタート"; $("againBtn").textContent = cam.starting ? "カメラ準備中…" : "もう一回";
+  $("goBtn").disabled = $("againBtn").disabled = !!cam.starting;
+}
+// startAfter: 準備ができたらゲームを始めるか（タイトル画面で先に準備しておくときは false）
+async function startCamera(startAfter) {
+  if (cam.starting) { if (startAfter) cam.startAfter = true; return; }
+  cam.starting = true; cam.err = ""; cam.startAfter = !!startAfter;
+  camStatus("カメラとAIを準備中…（数秒かかります。カメラの許可を聞かれたら「許可」を押してください）");
   try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
     await video.play();
@@ -787,16 +774,16 @@ async function startCamera(optional) {
     const opts = { baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task" }, runningMode: "VIDEO", numPoses: 2 };
     try { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "GPU" } }); }
     catch { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "CPU" } }); }
-    cam.ready = true; cam.starting = false; say(""); startGame();
+    cam.ready = true; cam.starting = false; camStatus(""); updatePairUI(); if (cam.startAfter) startGame();
   } catch (e) {
     console.warn(e); cam.starting = false;
-    if (optional) { cam.failed = true; startGame(); say("カメラが使えないため、ボタンを長く押すほど強く引けるようにして遊びます"); G.noteUntil = performance.now() + 4000; return; }
-    say(e?.name === "NotAllowedError" ? "カメラが許可されていません。アドレスバーのカメラのアイコンから許可してください" : e?.name === "NotReadableError" ? "カメラを別のアプリが使っている可能性があります" : "カメラかAIを準備できませんでした。http://localhost（Live Server）か https で開いているか確認してください");
+    cam.err = e?.name === "NotAllowedError" ? "カメラが許可されていません。アドレスバーのカメラのアイコンから許可して、もう一度スタートを押してください" : e?.name === "NotReadableError" ? "カメラを別のアプリが使っている可能性があります" : e?.name === "NotFoundError" ? "カメラが見つかりません。このゲームはPCのカメラが必要です" : "カメラかAIを準備できませんでした（ネット接続と、https で開いているか確認してください）";
+    camStatus(cam.err);
   }
 }
 function camSkel(lm, wl, VW, VH) {
   const P = (i) => ({ x: (1 - lm[i].x) * VW, y: lm[i].y * VH, v: lm[i].visibility ?? 1 });
-  const s = { nose: P(0), lSh: P(11), rSh: P(12), lEl: P(13), rEl: P(14), lWr: P(15), rWr: P(16), lHip: P(23), rHip: P(24) };
+  const s = { nose: P(0), lSh: P(11), rSh: P(12), lEl: P(13), rEl: P(14), lWr: P(15), rWr: P(16), lIdx: P(19), rIdx: P(20), lHip: P(23), rHip: P(24) };
   if (wl) s.world = { lWr: { x: wl[15].x, y: wl[15].y, z: wl[15].z }, rWr: { x: wl[16].x, y: wl[16].y, z: wl[16].z } };
   return s;
 }
@@ -804,27 +791,23 @@ function onCamPose(skels, t, VW, VH) {
   cam.VW = VW; cam.VH = VH;
   const s = pickPlayer(skels || [], cam.cx, VW);
   if (s) { cam.skel = s; cam.lastSeen = t; cam.cx = bodyCenterX(s); } else if (t - (cam.lastSeen || 0) > 400) { cam.skel = null; cam.cx = null; }
-  if (S.input === "phone") {  // 弦を引く強さ（少しなめらかに）。手が見えない時間が続いたら「読めない」扱い
-    const p = pullPower(s);
-    if (p != null) { cam.pull = cam.pull == null || Math.abs(p - cam.pull) < 0.03 ? p : cam.pull + (p - cam.pull) * 0.5; cam.pullAt = t; cam.pullHist.push({ t, p: cam.pull }); while (cam.pullHist.length && cam.pullHist[0].t < t - 1000) cam.pullHist.shift(); }
-    return;
+  if (!s) return;
+  // 肩の位置（照準の基準）は、ゆっくりなめらかにする（肩の点の揺れで照準が揺れないように）
+  const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
+  if (ok(s.lSh) && ok(s.rSh)) {
+    const r = { x: (s.lSh.x + s.rSh.x) / 2, y: (s.lSh.y + s.rSh.y) / 2, sw: Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) };
+    cam.ref = !cam.ref || t - cam.refAt > 500 ? r : { x: cam.ref.x + (r.x - cam.ref.x) * 0.15, y: cam.ref.y + (r.y - cam.ref.y) * 0.15, sw: cam.ref.sw + (r.sw - cam.ref.sw) * 0.15 };
+    cam.refAt = t;
   }
-  if (S.input !== "camera") return;
-  const ev = cam.det.push(t, s);
-  if (S.screen !== "play" || G.phase !== "aim") return;
-  if (ev?.type === "set") beginDraw("camera");
-  else if (ev?.type === "cancel") cancelDraw(ev.reason === "lost" ? "体が見えなくなったので、構え直してください" : "");
-  else if (ev?.type === "release" && G.drawing) release(ev.power);
-  if (G.drawing && G.drawBy === "camera") {
-    // 引いている途中は前の腕も動くので、照準は動かさない。引ききって止めた瞬間の手の位置を「真ん中」とし、そこからの動きで狙う
-    const st = cam.det.state(), k = aimGainCam(L().D);
-    if (st.anchored && !G.camRef) G.camRef = { ...st.aim };
-    if (!st.anchored) G.camRef = null;
-    G.inpT = G.camRef ? { x: (st.aim.x - G.camRef.x) * k, y: (st.aim.y - G.camRef.y) * k } : { x: 0, y: 0 };
-  }
+  // 狙う手 → 照準（揺れを取る）
+  const a = aimFromHand(s, bowHand(), cam.ref);
+  if (a) { if (t - cam.aimAt > 400) { cam.fx.reset(); cam.fy.reset(); } cam.aim = { x: cam.fx.filter(a.x, t), y: cam.fy.filter(a.y, t) }; cam.aimAt = t; }
+  // 引く手 → 引きの強さ
+  const p = pullPower(s, bowHand());
+  if (p != null) { cam.pull = cam.pull == null || Math.abs(p - cam.pull) < 0.03 ? p : cam.pull + (p - cam.pull) * 0.5; cam.pullAt = t; cam.pullHist.push({ t, p: cam.pull }); while (cam.pullHist.length && cam.pullHist[0].t < t - 1000) cam.pullHist.shift(); }
 }
 function camTick(now) {
-  if (!cam.ready || video.readyState < 2 || video.currentTime === cam.lastVT) return;
+  if (!cam.ready || !cam.pose || video.readyState < 2 || video.currentTime === cam.lastVT) return;
   cam.lastVT = video.currentTime;
   try { const t = Math.max(Math.round(now), cam.lastTs + 1); cam.lastTs = t; const r = cam.pose.detectForVideo(video, t);
     onCamPose(r.landmarks.map((lm, i) => camSkel(lm, r.worldLandmarks?.[i], video.videoWidth, video.videoHeight)), now, video.videoWidth, video.videoHeight); } catch (e) { console.warn(e); }
@@ -835,44 +818,29 @@ function drawCamPip() {
   if (video.readyState >= 2) { ctx.translate(px + pw, py); ctx.scale(-1, 1); ctx.globalAlpha = .8; ctx.drawImage(video, 0, 0, pw, ph); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; }
   const s = cam.skel, sx = (q) => px + q.x / VW * pw, sy = (q) => py + q.y / VH * ph, seen = (q) => q && Number.isFinite(q.x) && (q.v ?? 1) >= 0.5;
   if (s) {
-    const st = S.input === "phone" ? { phase: "phone", anchored: G.drawing && (cam.pull ?? 0) >= 1, power: cam.pull ?? 0 } : cam.det.state();
-    ctx.strokeStyle = st.anchored ? "#ffcc33" : st.phase === "idle" ? "rgba(255,255,255,.8)" : "#44e08f"; ctx.lineWidth = 3;
-    for (const [a, b] of [["lSh", "rSh"], ["lSh", "lEl"], ["lEl", "lWr"], ["rSh", "rEl"], ["rEl", "rWr"], ["lSh", "lHip"], ["rSh", "rHip"], ["lHip", "rHip"]]) { if (!seen(s[a]) || !seen(s[b])) continue; ctx.beginPath(); ctx.moveTo(sx(s[a]), sy(s[a])); ctx.lineTo(sx(s[b]), sy(s[b])); ctx.stroke(); }
-    for (const k of ["lWr", "rWr"]) { if (!seen(s[k])) continue; ctx.fillStyle = st.bow && k === st.bow + "Wr" ? "#ff2e7a" : "#fff"; ctx.beginPath(); ctx.arc(sx(s[k]), sy(s[k]), 5, 0, Math.PI * 2); ctx.fill(); }
-    ctx.fillStyle = "rgba(5,6,13,.7)"; ctx.fillRect(px, py, pw, 22); ctx.fillStyle = "#fff"; ctx.font = "13px sans-serif"; ctx.textAlign = "left";
-    ctx.fillText(st.phase === "phone" ? (cam.pull == null ? "両手が映るように" : `弦の引き ${Math.round(st.power * 100)}%`) : st.phase === "idle" ? "構え待ち" : st.phase === "set" ? "構えた → 引く" : st.anchored ? "引ききった → 放す" : `引いています ${Math.round(st.power * 100)}%`, px + 6, py + 16);
+    const b = bowHand(), d = b === "l" ? "r" : "l", pull = cam.pull ?? 0;
+    ctx.strokeStyle = G.drawing ? (pull >= 1 ? "#ffcc33" : "#44e08f") : "rgba(255,255,255,.8)"; ctx.lineWidth = 3;
+    for (const [a, c] of [["lSh", "rSh"], ["lSh", "lEl"], ["lEl", "lWr"], ["rSh", "rEl"], ["rEl", "rWr"], ["lSh", "lHip"], ["rSh", "rHip"], ["lHip", "rHip"]]) { if (!seen(s[a]) || !seen(s[c])) continue; ctx.beginPath(); ctx.moveTo(sx(s[a]), sy(s[a])); ctx.lineTo(sx(s[c]), sy(s[c])); ctx.stroke(); }
+    if (seen(s[b + "Wr"])) { ctx.fillStyle = "#ff2e7a"; ctx.beginPath(); ctx.arc(sx(s[b + "Wr"]), sy(s[b + "Wr"]), 7, 0, Math.PI * 2); ctx.fill(); }   // 狙う手
+    if (seen(s[d + "Wr"])) { ctx.fillStyle = "#ffcc33"; ctx.beginPath(); ctx.arc(sx(s[d + "Wr"]), sy(s[d + "Wr"]), 6, 0, Math.PI * 2); ctx.fill(); } // 引く手（スマホ）
+    ctx.fillStyle = "rgba(5,6,13,.75)"; ctx.fillRect(px, py, pw, 22); ctx.font = "13px sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = "#ff2e7a"; ctx.fillText(`● ${bowWord()}で狙う`, px + 6, py + 16);
+    ctx.fillStyle = "#ffcc33"; ctx.fillText(`● 引き ${cam.pull == null ? "--" : Math.round(pull * 100)}%`, px + 112, py + 16);
   } else {
     ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(px, py, pw, ph); ctx.fillStyle = "#fff"; ctx.font = "14px sans-serif"; ctx.textAlign = "center";
-    ctx.fillText("体が見えません", px + pw / 2, py + ph / 2 - 6); ctx.fillText("上半身がカメラに映るように", px + pw / 2, py + ph / 2 + 14);
+    ctx.fillText("体が見えません", px + pw / 2, py + ph / 2 - 6); ctx.fillText("上半身と両手が映るように", px + pw / 2, py + ph / 2 + 14);
   }
   ctx.restore();
 }
 
-// ---------- 空中ボタン（カメラ操作のときのメニュー用） ----------
-const air = { target: null, since: 0, cursor: null, cool: 0 };
-function tickAir(now) {
-  const menu = S.screen === "title" ? $("mTitle") : S.screen === "result" ? $("mResult") : null;
-  for (const b of document.querySelectorAll(".air")) { b.classList.remove("hover"); b.style.setProperty("--p", 0); }
-  air.cursor = null;
-  const s = cam.skel; if (!menu || !s || S.input !== "camera") return;
-  const neck = { x: (s.lSh.x + s.rSh.x) / 2, y: (s.lSh.y + s.rSh.y) / 2 }, sw = Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y); if (!sw) return;
-  for (const k of ["lWr", "rWr"]) { const p = s[k]; if ((p.v ?? 1) < .5) continue; const nx = (p.x - (neck.x - 1.7 * sw)) / (3.4 * sw), ny = (p.y - (neck.y - 1.6 * sw)) / (2.5 * sw);
-    if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= .95 && (!air.cursor || p.y < air.cursor.raw)) air.cursor = { x: nx * W, y: ny * H, raw: p.y }; }
-  if (!air.cursor || now < air.cool) { air.target = null; return; }
-  const sr = stage.getBoundingClientRect(), px = sr.left + air.cursor.x / W * sr.width, py = sr.top + air.cursor.y / H * sr.height;
-  let hit = null; for (const b of menu.querySelectorAll(".air")) { if (b.offsetParent === null || b.disabled) continue; const r = b.getBoundingClientRect(); if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) hit = b; }
-  if (hit !== air.target) { air.target = hit; air.since = now; }
-  if (hit) { const p = Math.min(1, (now - air.since) / 1300); hit.classList.add("hover"); hit.style.setProperty("--p", p); if (p >= 1) { air.target = null; air.cool = now + 800; Snd.click(); hit.click(); } }
-}
-
 // ---------- メインループ・操作 ----------
 function loop(now) {
-  try { if (cam.fake) { const f = cam.fake(now); onCamPose(f ? (Array.isArray(f) ? f : [f]) : [], now, 1280, 720); } else camTick(now); tickAir(now); step(now); render(now); } catch (e) { console.error(e); }
+  try { if (cam.fake) { const f = cam.fake(now); onCamPose(f ? (Array.isArray(f) ? f : [f]) : [], now, 1280, 720); } else camTick(now); step(now); render(now); } catch (e) { console.error(e); }
   requestAnimationFrame(loop);
 }
 function goHome() { G.phase = "idle"; G.drawing = false; G.shot = null; setScreen("title"); renderSheet(); sendState(); }
 function selectGroup(attr, val) { for (const b of document.querySelectorAll(`[data-${attr}]`)) b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val))); }
-for (const b of document.querySelectorAll("[data-input]")) b.addEventListener("click", () => { S.input = b.dataset.input; selectGroup("input", S.input); updatePairUI(); });
+for (const b of document.querySelectorAll("[data-hand]")) b.addEventListener("click", () => { S.hand = b.dataset.hand; selectGroup("hand", S.hand); sendState(); });
 for (const b of document.querySelectorAll("[data-players]")) b.addEventListener("click", () => { S.players = Number(b.dataset.players); selectGroup("players", S.players); updatePairUI(); renderSheet(); });
 for (const b of document.querySelectorAll("[data-level]")) b.addEventListener("click", () => { S.level = Number(b.dataset.level); selectGroup("level", S.level); setRankView(S.level); });
 for (const b of document.querySelectorAll("[data-arrows]")) b.addEventListener("click", () => { S.arrows = Number(b.dataset.arrows); selectGroup("arrows", S.arrows); setRankView(rankLevel); renderSheet(); });
@@ -884,13 +852,18 @@ $("soundBtn").addEventListener("click", () => { S.sound = !S.sound; $("soundBtn"
 $("fsBtn").addEventListener("click", () => { (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.())?.catch?.(() => {}); });
 setRankView(1); renderSheet(); updatePairUI();
 requestAnimationFrame(loop);
+// スペースキー = スマホのボタンの代わり（押している間 弦をつかむ、離すと発射）
+document.addEventListener("keydown", (e) => { if (e.code !== "Space" || e.target.closest("input")) return; if (S.screen === "play") e.preventDefault(); if (!e.repeat) beginDraw("key"); });
+document.addEventListener("keyup", (e) => { if (e.code !== "Space" || e.target.closest("input")) return; if (G.drawBy === "key") doRelease(); });
+// タイトル画面で何かを押したら、裏でカメラの準備を始めておく（スタートを押したらすぐ始まるように）
+document.addEventListener("pointerdown", function warm() { document.removeEventListener("pointerdown", warm); if (!cam.ready && !cam.starting && !cam.fake && !DEBUG) startCamera(false); });
 
 if (DEBUG) {
   const fakeConns = [];
   window.arTest = {
-    state: () => ({ screen: S.screen, phase: G.phase, drawing: G.drawing, cur: curP(), k: G.k, shots: G.shots.map((l) => l.map((a) => a && { label: a.label, score: a.score, hit: a.hit, power: a.power })), reticle: { ...G.reticle }, start: { ...G.start }, inp: { ...G.inp }, wind: G.windNow,
-      conns: phone.conns.length, peerOpen: !!phone.peer?.open, power: currentPower(performance.now()), msg: $("msg").textContent, det: cam.det.state(), last: G.shot && { power: G.shot.power, aim: G.shot.aim, label: G.shot.sim.label } }),
-    set: (o) => { for (const k of ["input", "players", "level", "arrows", "speed"]) if (o[k] != null) { S[k] = o[k]; selectGroup(k, o[k]); } updatePairUI(); renderSheet(); },
+    state: () => ({ screen: S.screen, phase: G.phase, drawing: G.drawing, cur: curP(), k: G.k, shots: G.shots.map((l) => l.map((a) => a && { label: a.label, score: a.score, hit: a.hit, power: a.power })), reticle: G.reticle && { ...G.reticle }, wind: G.windNow,
+      conns: phone.conns.length, peerOpen: !!phone.peer?.open, power: currentPower(), pull: cam.pull, aim: cam.aim, msg: $("msg").textContent, note: $("startNote").textContent, go: $("goBtn").textContent, goDisabled: $("goBtn").disabled, last: G.shot && { power: G.shot.power, aim: G.shot.aim, label: G.shot.sim.label } }),
+    set: (o) => { for (const k of ["hand", "players", "level", "arrows", "speed"]) if (o[k] != null) { S[k] = o[k]; selectGroup(k, o[k]); } updatePairUI(); renderSheet(); },
     start: () => startGame(), release: (power, aim) => release(power, aim), noSway: () => { for (const k in LEVELS) LEVELS[k].sway = 0; },
     setWinds: (arr) => { G.winds = arr.map((b) => ({ base: b, gust: 0, p1: 0, p2: 0 })); },
     addFakePhones: (n) => { for (let i = 0; i < n; i++) { const c = { send: () => {}, fake: true }; fakeConns.push(c); phone.conns.push(c); } updatePairUI(); },

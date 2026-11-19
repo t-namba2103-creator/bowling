@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>アーチェリー リモコン</title>
 <style>
-  /* スマホのリモコン画面（仮デザイン）。画面のほとんどを「押している間 弓を引く」ボタンにする */
+  /* スマホのリモコン画面（仮デザイン）。スマホは「弦をつかむボタン」だけ。狙う・引くはPCのカメラが読む */
   :root { --bg: #0f1222; --panel: #191d36; --line: #2c3263; --fg: #f2f4ff; --muted: #a0a7d0; --accent: #ffcc33; --good: #44e08f; --bad: #ff5b72;
     --font: "Hiragino Maru Gothic ProN", "Yu Gothic", "Meiryo", sans-serif; color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; }
-  body { background: var(--bg); color: var(--fg); font-family: var(--font); user-select: none; -webkit-user-select: none; overscroll-behavior: none;
+  body { background: var(--bg); color: var(--fg); font-family: var(--font); user-select: none; -webkit-user-select: none; overscroll-behavior: none; -webkit-touch-callout: none;
     padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
   main { height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; gap: 10px; max-width: 520px; margin: 0 auto; }
   .status { display: flex; justify-content: space-between; align-items: center; font-size: .85rem; color: var(--muted); }
@@ -27,12 +27,7 @@
   .big.show { opacity: 1; }
   .last { color: var(--muted); font-size: .88rem; text-align: center; min-height: 1.3em; margin: 0; }
   .btn { border: 1px solid var(--line); border-radius: 14px; padding: 13px; font: inherit; font-size: 1rem; font-weight: 700; background: #232953; color: var(--fg); touch-action: manipulation; width: 100%; }
-  .btn.small { font-size: .85rem; padding: 10px; }
-  .btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
-  details { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
-  details summary { color: var(--muted); font-size: .85rem; cursor: pointer; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .note { color: var(--muted); font-size: .75rem; margin: 6px 0 0; text-align: center; }
+  .note { color: var(--muted); font-size: .75rem; margin: 0; text-align: center; }
 </style>
 </head>
 <body>
@@ -40,135 +35,42 @@
   <div class="status"><span><span class="dot" id="dot"></span><span id="conn">通信サーバーに接続中…</span></span><span id="who"></span></div>
   <div class="state" id="state">PCとつないでいます…</div>
   <button class="hold" id="hold" disabled>
-    <span id="holdText">この手を画面に向けてのばし<br>押したまま、もう片方の手で<br>弦を顔の横まで引いて<br>指を離すと発射<small>スマホの向きで狙う ・ カメラがないときは長押しで引く</small></span>
+    <span id="holdText">押したまま（弦をつかむ）<br>顔の横まで引いて<br>離すと発射<small>反対の手を的に向けてのばして狙います</small></span>
     <span class="big" id="big"></span>
   </button>
   <div style="display:grid; gap:8px">
     <p class="last" id="last"></p>
     <button class="btn" id="startBtn">スタート / もう一回</button>
-    <details>
-      <summary>設定・うまくいかないとき</summary>
-      <div class="grid2">
-        <button class="btn small" id="sensorBtn">センサーを有効にする</button>
-        <button class="btn small" id="testBtn">狙いの動きを確認</button>
-        <button class="btn small" id="invXBtn" aria-pressed="false">左右を反転</button>
-        <button class="btn small" id="invYBtn" aria-pressed="false">上下を反転</button>
-      </div>
-      <p class="note">ストラップに手首を通してから使ってください。スマホを投げないでください。</p>
-    </details>
+    <p class="note">ストラップに手首を通してから使ってください。スマホを投げないでください。</p>
   </div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
-// --- pure:start（スマホの向きの変化 → 狙いの角度（度）。押した瞬間を 0 とする） ---
-// サンプル: {t, r:{alpha,beta,gamma}（回転の速さ 度/秒）, g（重力込みの加速度）, a（重力抜きの加速度）}
-// 左右 = 鉛直（重力の向き）まわりの回転。持ち方に関係なく測れる
-// 上下 = 「スマホが向いている方向」と鉛直の両方に直角な軸まわりの回転
-//   スマホが向いている方向は、押した瞬間に「上の端（+y）」と「背面（−z）」のうち水平に近い方とする
-//   （横に寝かせて上の端を画面に向けても、立てて背面を画面に向けても使える）
-const dot3 = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
-const norm3 = (u) => Math.hypot(u[0], u[1], u[2]);
-const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const omega = (s) => (s.r && s.r.alpha != null ? [s.r.beta || 0, s.r.gamma || 0, s.r.alpha || 0] : null);
-function createAimTracker() {
-  let up = null, fwd = null, x = 0, y = 0, lastT = null, gyro = null, tilt0 = null;
-  const deg = (r) => r * 180 / Math.PI;
-  return {
-    reset() { x = 0; y = 0; lastT = null; fwd = null; tilt0 = null; },
-    get gyro() { return gyro; },
-    push(s) {
-      if (s.g) {
-        const gv = s.a ? [s.g.x - (s.a.x || 0), s.g.y - (s.a.y || 0), s.g.z - (s.a.z || 0)] : [s.g.x, s.g.y, s.g.z], n = norm3(gv);
-        if (n > 3) { const u = gv.map((c) => c / n); if (!up) up = u; else { const m = up.map((c, i) => c * 0.85 + u[i] * 0.15), mn = norm3(m); up = m.map((c) => c / mn); } }
-      }
-      if (!up) return { x, y };
-      if (!fwd) fwd = Math.abs(up[1]) <= Math.abs(up[2]) ? [0, 1, 0] : [0, 0, -1];
-      const w = omega(s);
-      if (w) {
-        gyro = true;
-        if (lastT != null) {
-          const dt = (s.t - lastT) / 1000;
-          if (dt > 0 && dt < 0.2) {
-            const h = cross3(fwd, up), hn = norm3(h);
-            x -= dot3(w, up) * dt;                                  // 上から見て反時計回り（左を向く）がプラスの回転 → 左右はマイナス
-            if (hn > 0.3) y += dot3(w, h.map((c) => c / hn)) * dt;  // 向いている方向が上がる回転 → 上
-          }
-        }
-        lastT = s.t;
-      } else if (gyro !== true) {
-        // ジャイロがない機種: 傾きで代用（押した瞬間の傾きからの差）。
-        // ※ ジャイロがある機種でも、回転の値が入っていないデータが時々混ざる → そのときは何もしない（切り替えると狙いが0に戻ってしまう）
-        gyro = false;
-        const el = deg(Math.asin(Math.max(-1, Math.min(1, dot3(fwd, up))))), side = deg(Math.asin(Math.max(-1, Math.min(1, up[0]))));
-        if (!tilt0) tilt0 = { el, side };
-        x = -(side - tilt0.side); y = el - tilt0.el;
-      }
-      return { x, y };
-    },
-  };
-}
-// --- pure:end ---
-
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search), room = params.get("room");
-let holding = false, holdT = 0, conn = null, canDraw = false, drawMs = 900, lastSend = 0, sensorOn = false;
-const tracker = createAimTracker();
-const load = (k) => { try { return localStorage.getItem(k) === "1"; } catch { return false; } };
-const save = (k, v) => { try { localStorage.setItem(k, v ? "1" : "0"); } catch { /* 保存できなくても使える */ } };
-const opt = { invX: load("arch-invx"), invY: load("arch-invy") };
-$("invXBtn").setAttribute("aria-pressed", String(opt.invX)); $("invYBtn").setAttribute("aria-pressed", String(opt.invY));
+let holding = false, conn = null, canDraw = false, hand = "right";
 const buzz = (p) => { try { navigator.vibrate?.(p); } catch { /* 震えない機種もある（iPhone など） */ } };
-let testLog = null;
-
-// ---- センサー ----
-function onMotion(e) {
-  const r = e.rotationRate, g = e.accelerationIncludingGravity, a = e.acceleration;
-  const s = { t: performance.now(), r: r && r.alpha != null ? { alpha: r.alpha, beta: r.beta, gamma: r.gamma } : null,
-    g: g && g.x != null ? { x: g.x, y: g.y, z: g.z } : null, a: a && a.x != null ? { x: a.x, y: a.y, z: a.z } : null };
-  const aim = tracker.push(s);
-  if (testLog) testLog.push(aim);
-  if (holding && s.t - lastSend >= 33) { lastSend = s.t; send({ t: "aim", x: opt.invX ? -aim.x : aim.x, y: opt.invY ? -aim.y : aim.y }); } // 1秒に30回くらい送る
+function updateText() {
+  const bow = hand === "right" ? "左手" : "右手";
+  $("holdText").innerHTML = `押したまま（弦をつかむ）<br>顔の横まで引いて<br>離すと発射<small>${bow}を的に向けてのばして狙います</small>`;
 }
-async function enableSensor() {
-  if (sensorOn) return true;
-  try {
-    if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
-      const r = await DeviceMotionEvent.requestPermission();
-      if (r !== "granted") { $("last").textContent = "動きのセンサーが許可されませんでした。ブラウザの設定から許可してください"; return false; }
-    }
-    window.addEventListener("devicemotion", onMotion); sensorOn = true;
-    $("sensorBtn").textContent = "センサー有効"; $("sensorBtn").disabled = true;
-    try { await navigator.wakeLock?.request("screen"); } catch { /* 画面が消えないようにする（できなくても遊べる） */ }
-    return true;
-  } catch (e) { $("last").textContent = "センサーを有効にできませんでした: " + e.message; return false; }
-}
-$("sensorBtn").addEventListener("click", enableSensor);
 
-// ---- 引く（押している間）・放す（離す） ----
+// ---- 弦をつかむ（押している間）・放す（離す） ----
 const hold = $("hold");
 hold.addEventListener("pointerdown", (e) => {
-  if (!canDraw) return;
-  if (!sensorOn) { enableSensor(); return; }          // 初回はセンサーの許可だけ（許可の画面が出るため）
-  holding = true; holdT = performance.now(); tracker.reset(); hold.classList.add("holding");
-  try { hold.setPointerCapture(e.pointerId); } catch { /* 指が外れても離したときに放てるように */ }
-  buzz(15); send({ t: "draw", on: true }); send({ t: "aim", x: 0, y: 0 });
+  if (!canDraw || holding) return;
+  holding = true; hold.classList.add("holding"); $("last").textContent = "";
+  try { hold.setPointerCapture(e.pointerId); } catch { /* 指が外れても、離したときに放てるように */ }
+  buzz(15); send({ t: "draw", on: true });
 });
 function release() {
   if (!holding) return; holding = false; hold.classList.remove("holding");
   send({ t: "release" });
-  if (tracker.gyro === false) $("last").textContent = "この機種はジャイロがないため、傾きで狙っています";
 }
 hold.addEventListener("pointerup", release); hold.addEventListener("pointercancel", release);
-$("startBtn").addEventListener("click", async () => { await enableSensor(); send({ t: "start" }); });
-$("invXBtn").addEventListener("click", () => { opt.invX = !opt.invX; $("invXBtn").setAttribute("aria-pressed", String(opt.invX)); save("arch-invx", opt.invX); });
-$("invYBtn").addEventListener("click", () => { opt.invY = !opt.invY; $("invYBtn").setAttribute("aria-pressed", String(opt.invY)); save("arch-invy", opt.invY); });
-$("testBtn").addEventListener("click", async () => {
-  if (!(await enableSensor())) return;
-  tracker.reset(); testLog = []; $("last").textContent = "3秒間、スマホを右へ向けてみてください…";
-  setTimeout(() => { const a = testLog[testLog.length - 1] || { x: 0, y: 0 }; testLog = null;
-    $("last").textContent = `右へ ${a.x.toFixed(0)}° ・ 上へ ${a.y.toFixed(0)}°（右へ向けたのにマイナスなら「左右を反転」）${tracker.gyro === false ? "・ジャイロなし" : ""}`; }, 3000);
-});
+hold.addEventListener("contextmenu", (e) => e.preventDefault());             // 長押しでメニューが出ないように
+$("startBtn").addEventListener("click", () => send({ t: "start" }));
 
 // ---- 手応え（PCから届く） ----
 let bigTimer = 0;
@@ -195,20 +97,21 @@ function connect() {
   peer.on("open", () => {
     setConn(false, "PCを探しています…");
     conn = peer.connect(room, { reliable: true });
-    const slow = setTimeout(() => { if (!conn.open) $("state").textContent = "PCと直接つながりません。Wi-Fiが端末どうしの通信を止めている可能性があります。スマホのWi-Fiを切ってモバイル通信で試してください"; }, 10000);
+    const slow = setTimeout(() => { if (!conn.open) $("state").textContent = "PCと直接つながりません。Wi-Fiが端末どうしの通信を止めている可能性があります。スマホのWi-Fiを切ってモバイル通信で試してください（PCのスペースキーでも遊べます）"; }, 10000);
     conn.on("open", () => { clearTimeout(slow); setConn(true, "PCと接続中"); send({ t: "hello" }); });
     conn.on("data", (d) => {
       if (d?.t === "fx") return onFx(d);
       if (d?.t !== "state") return;
-      $("state").textContent = d.text; canDraw = !!d.canDraw; hold.disabled = !canDraw; $("who").textContent = d.you || ""; drawMs = d.drawMs || 900;
+      $("state").textContent = d.text; canDraw = !!d.canDraw; hold.disabled = !canDraw; $("who").textContent = d.you || "";
+      if (d.hand && d.hand !== hand) { hand = d.hand; updateText(); }
       if (!canDraw && holding) { holding = false; hold.classList.remove("holding"); }
     });
     conn.on("close", () => { setConn(false, "切断されました（再読み込みでつなぎ直し）"); hold.disabled = true; canDraw = false; });
   });
   peer.on("error", (e) => setConn(false, e.type === "peer-unavailable" ? "PCが見つかりません（PCの画面を確認）" : e.type === "network" || e.type === "server-error" ? "通信サーバーにつながりません" : `接続エラー: ${e.type}`));
 }
-connect();
-window.ctrlTest = { createAimTracker, state: () => ({ canDraw, connected: !!conn?.open, sensorOn, holding, big: $("big").textContent }) };
+updateText(); connect();
+window.ctrlTest = { state: () => ({ canDraw, connected: !!conn?.open, holding, big: $("big").textContent, hand }) };
 </script>
 </body>
 </html>
