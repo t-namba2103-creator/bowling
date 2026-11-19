@@ -35,7 +35,7 @@
   <div class="status"><span><span class="dot" id="dot"></span><span id="conn">通信サーバーに接続中…</span></span><span id="who"></span></div>
   <div class="state" id="state">PCとつないでいます…</div>
   <button class="hold" id="hold" disabled>
-    <span id="holdText">押したまま（弦をつかむ）<br>顔の横まで引いて<br>離すと発射<small>反対の手を的に向けてのばして狙います</small></span>
+    <span id="holdText">押すとPCのゲージが動く<br>金色の所で離すと発射</span>
     <span class="big" id="big"></span>
   </button>
   <div style="display:grid; gap:8px">
@@ -53,7 +53,7 @@ let holding = false, conn = null, canDraw = false, hand = "right";
 const buzz = (p) => { try { navigator.vibrate?.(p); } catch { /* 震えない機種もある（iPhone など） */ } };
 function updateText() {
   const bow = hand === "right" ? "左手" : "右手";
-  $("holdText").innerHTML = `押したまま（弦をつかむ）<br>顔の横まで引いて<br>離すと発射<small>${bow}を的に向けてのばして狙います</small>`;
+  $("holdText").innerHTML = `押すとPCの画面のゲージが動く<br>金色（いっぱい）の所で離すと発射<small>${bow}を的に向けてのばして狙う ・ 押しながら顔の横まで引くと気分が出ます</small>`;
 }
 
 // ---- 弦をつかむ（押している間）・放す（離す） ----
@@ -77,7 +77,7 @@ let bigTimer = 0;
 function showBig(text) { if (!text) return; const b = $("big"); b.textContent = text; b.classList.add("show"); clearTimeout(bigTimer); bigTimer = setTimeout(() => b.classList.remove("show"), 1500); }
 function onFx(d) {
   if (d.kind === "full") buzz(20);
-  else if (d.kind === "release") buzz(40);
+  else if (d.kind === "release") { buzz(40); if (d.text) $("last").textContent = `タイミング: ${d.text}`; }
   else if (d.kind === "hit") { buzz(/10|X/.test(d.text) ? [80, 40, 80, 40, 200] : [60]); showBig(d.text); }
   else showBig(d.text);
 }
@@ -100,6 +100,7 @@ function connect() {
     const slow = setTimeout(() => { if (!conn.open) $("state").textContent = "PCと直接つながりません。Wi-Fiが端末どうしの通信を止めている可能性があります。スマホのWi-Fiを切ってモバイル通信で試してください（PCのスペースキーでも遊べます）"; }, 10000);
     conn.on("open", () => { clearTimeout(slow); setConn(true, "PCと接続中"); send({ t: "hello" }); });
     conn.on("data", (d) => {
+      if (d?.t === "ping") return send({ t: "pong", ts: d.ts });              // 通信の遅れを測るための返事
       if (d?.t === "fx") return onFx(d);
       if (d?.t !== "state") return;
       $("state").textContent = d.text; canDraw = !!d.canDraw; hold.disabled = !canDraw; $("who").textContent = d.you || "";
