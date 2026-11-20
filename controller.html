@@ -58,6 +58,7 @@
         <button class="btn small" id="sensorBtn">センサーを有効にする</button>
         <button class="btn small" id="testBtn">直前の振りを確認</button>
         <button class="btn small" id="invertSpinBtn" aria-pressed="false">カーブの向きを反転</button>
+        <button class="btn small" id="noCurveBtn" aria-pressed="false">カーブなし（まっすぐだけ）</button>
       </div>
       <p class="note">ストラップに手首を通してから振ってください。周りに人がいないか確認しましょう。</p>
     </details>
@@ -76,7 +77,7 @@ const omega = (s) => (s.r ? [s.r.beta || 0, s.r.gamma || 0, s.r.alpha || 0] : nu
 const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit3 = (v) => { const n = norm3(v); return n > 0 ? v.map((c) => c / n) : v; };
 function analyzeSwing(samples, tGrip, tRel, opt = {}) {
-  const o = { needBack: true, invertSpin: false, ...opt };
+  const o = { needBack: true, invertSpin: false, noCurve: false, ...opt };
   const held = samples.filter((s) => s.t >= tGrip - 50 && s.t <= tRel);
   const win = held.filter((s) => s.t >= tRel - 300);
   if (win.length < 3) return { ok: false, reason: "振りを読み取れませんでした（センサーが有効か確認してください）" };
@@ -94,7 +95,9 @@ function analyzeSwing(samples, tGrip, tRel, opt = {}) {
   const speed = Math.min(1, Math.max(0, (pv - 150) / 650));
   if (speed <= 0) return { ok: false, reason: "もう少し強く振ってください", speedRaw: pv };
   // 前に振る回転の軸: 速く回っていたサンプルの回転の向きの平均
-  const fast = ws.filter((s) => norm3(omega(s)) >= pv * 0.6), ref = omega(fast[0] || ws[0]);
+  // （離す直前0.15秒は手首のひねりが混ざるので、軸を求めるのには使わない）
+  const fastAll = ws.filter((s) => norm3(omega(s)) >= pv * 0.6), fastEarly = fastAll.filter((s) => s.t < tRel - 150);
+  const fast = fastEarly.length >= 2 ? fastEarly : fastAll, ref = omega(fast[0] || ws[0]);
   const axis = unit3(fast.reduce((m, s) => { const w = omega(s), sg = dot3(w, ref) >= 0 ? 1 : -1; return [m[0] + sg * w[0], m[1] + sg * w[1], m[2] + sg * w[2]]; }, [0, 0, 0]));
   const peakT = fast.length ? fast[0].t : win[0].t;
   if (o.needBack) {
@@ -117,15 +120,18 @@ function analyzeSwing(samples, tGrip, tRel, opt = {}) {
       const dt = Math.min(0.05, (s.t - lastT) / 1000); lastT = s.t;
       const wr = w.map((c) => c * D2R), d = cross3(wr, up);                                  // 世界に固定した向きは、端末から見ると -ω×v で回る
       up = unit3([up[0] - d[0] * dt, up[1] - d[1] * dt, up[2] - d[2] * dt]);
-      if (s.t >= tRel - 150) { sum += dot3(w, up); n++; }
+      // 振る回転（振り子の軸まわり。とても速い）を取り除いてから、鉛直まわりの「ひねり」だけを測る。
+      // 取り除かないと、重力の向きが少しずれただけ・少し横から振っただけで、振る回転がひねりに混ざって勝手にカーブする
+      if (s.t >= tRel - 150) { const along = dot3(w, axis), wt = [w[0] - along * axis[0], w[1] - along * axis[1], w[2] - along * axis[2]]; sum += dot3(wt, up); n++; }
     }
     twist = n ? sum / n : 0;
   } else {
     const last = win.filter((s) => s.t >= tRel - 150 && omega(s));
     twist = last.reduce((m, s) => m + omega(s)[1], 0) / Math.max(1, last.length);      // 重力が取れない機種: スマホの長い方の軸まわり
   }
-  let spin = Math.max(-1, Math.min(1, -twist / 350));                                     // 上から見て時計回りのひねり → 右へ曲がる
-  if (Math.abs(spin) < 0.15) spin = 0;                                                    // 少しのひねり（ノイズ）ではカーブしない
+  let spin = Math.max(-1, Math.min(1, -twist / 300));                                     // 上から見て時計回りのひねり → 右へ曲がる
+  if (Math.abs(spin) < 0.2) spin = 0;                                                     // 少しのひねり（ノイズ・自然な手首の動き）ではカーブしない
+  if (o.noCurve) spin = 0;                                                                // 「カーブなし」設定
   if (o.invertSpin) spin = -spin;
   return { ok: true, speed, spin, speedRaw: pv, gyro: true };
 }
@@ -136,8 +142,8 @@ const params = new URLSearchParams(location.search), room = params.get("room");
 const samples = []; let holding = false, gripT = 0, conn = null, canThrow = false;
 const load = (k) => { try { return localStorage.getItem(k) === "1"; } catch { return false; } };
 const save = (k, v) => { try { localStorage.setItem(k, v ? "1" : "0"); } catch { /* 保存できなくても使える */ } };
-const opt = { invertSpin: load("bowl-invert") };
-$("invertSpinBtn").setAttribute("aria-pressed", String(opt.invertSpin));
+const opt = { invertSpin: load("bowl-invert"), noCurve: load("bowl-nocurve") };
+$("invertSpinBtn").setAttribute("aria-pressed", String(opt.invertSpin)); $("noCurveBtn").setAttribute("aria-pressed", String(opt.noCurve));
 const buzz = (p) => { try { navigator.vibrate?.(p); } catch { /* 震えない機種もある（iPhone など） */ } };
 
 // ---- センサー ----
@@ -185,6 +191,7 @@ function release() {
 }
 hold.addEventListener("pointerup", release); hold.addEventListener("pointercancel", release);
 $("startBtn").addEventListener("click", async () => { await enableSensor(); send({ t: "start" }); });
+$("noCurveBtn").addEventListener("click", () => { opt.noCurve = !opt.noCurve; $("noCurveBtn").setAttribute("aria-pressed", String(opt.noCurve)); save("bowl-nocurve", opt.noCurve); });
 $("invertSpinBtn").addEventListener("click", () => { opt.invertSpin = !opt.invertSpin; $("invertSpinBtn").setAttribute("aria-pressed", String(opt.invertSpin)); save("bowl-invert", opt.invertSpin); });
 $("testBtn").addEventListener("click", () => {
   const t = performance.now(), r = analyzeSwing(samples, t - 2500, t, { ...opt, needBack: false });
