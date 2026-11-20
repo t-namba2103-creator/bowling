@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>レールクイズ</title>
+<style>
+  /* 仮デザイン（後で差し替え予定） */
+  :root {
+    --bg: #0f1222; --panel: #191d36; --line: #2c3263; --fg: #f2f4ff; --muted: #a0a7d0;
+    --accent: #ffcc33; --good: #44e08f; --bad: #ff5b72;
+    --font: "Hiragino Maru Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font);
+    padding: 14px max(16px, env(safe-area-inset-left, 0px)) 28px max(16px, env(safe-area-inset-right, 0px)); }
+  main { max-width: 1200px; margin: 0 auto; display: grid; gap: 12px; }
+  h1 { margin: 0; font-size: 1.4rem; }
+  .sub { margin: 2px 0 0; color: var(--muted); font-size: .88rem; }
+  .stage { position: relative; aspect-ratio: 16 / 9; max-width: 100%; border-radius: 14px; overflow: hidden; background: #05060d; user-select: none; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stage video { display: none; }
+  .pop { position: absolute; left: 0; right: 0; top: 40%; text-align: center; font-size: clamp(2rem, 7vw, 4.6rem); font-weight: 800;
+    text-shadow: 0 4px 16px rgba(0,0,0,.7); pointer-events: none; opacity: 0; }
+  .pop.show { animation: pop 1.4s ease-out forwards; }
+  @keyframes pop { 0% { opacity: 0; transform: scale(1.6); } 12% { opacity: 1; transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+  .pop.good { color: var(--good); } .pop.bad { color: var(--bad); } .pop.normal { color: var(--accent); }
+  .menu { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5,6,13,.8); padding: 14px; overflow: auto; }
+  .menu .inner { display: grid; gap: 10px; justify-items: center; text-align: center; width: min(100%, 900px); }
+  .menu h2 { margin: 0; font-size: clamp(1.6rem, 5vw, 3rem); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+  .row .lbl { width: 100%; font-size: .75rem; color: var(--muted); letter-spacing: .12em; }
+  .air { position: relative; font: inherit; font-weight: 700; font-size: clamp(.82rem, 1.7vw, 1rem); border: 2px solid rgba(255,255,255,.35); border-radius: 12px;
+    padding: 8px 14px; background: rgba(25,29,54,.92); color: var(--fg); cursor: pointer; }
+  .air small { display: block; font-size: .68rem; font-weight: 400; opacity: .8; }
+  .air[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .air.go { background: var(--accent); color: #241a00; border-color: var(--accent); font-size: 1.15rem; padding: 11px 36px; }
+  .air:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .howto { max-width: 680px; color: var(--muted); font-size: .9rem; line-height: 1.8; margin: 0; }
+  .howto b { color: var(--fg); }
+  .pair { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; text-align: left; background: rgba(25,29,54,.92); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; max-width: 640px; }
+  .pair .qr { width: 120px; height: 120px; background: #fff; border-radius: 8px; }
+  .pair .qr img { width: 100%; height: 100%; image-rendering: pixelated; }
+  .pair p { margin: 0 0 4px; font-size: .86rem; }
+  .pair code { font-size: 1.05rem; color: var(--accent); }
+  .warn { color: var(--bad); font-size: .82rem; }
+  .ok { color: var(--good); }
+  .entry { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  .entry input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 2px solid var(--accent); background: #0b0e20; color: var(--fg); width: 11em; }
+  .res { font-size: clamp(1.8rem, 6vw, 3.4rem); font-weight: 800; color: var(--accent); }
+  .review { max-width: 760px; max-height: 180px; overflow: auto; text-align: left; font-size: .85rem; color: var(--muted); margin: 0; padding-left: 1.2em; }
+  .review .ng { color: var(--bad); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; }
+  .bar .sp { flex: 1; }
+  .btn { font: inherit; font-weight: 700; font-size: .88rem; border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; background: #232953; color: var(--fg); cursor: pointer; }
+  .btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+  .card h3 { margin: 0 0 8px; font-size: 1rem; }
+  .lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 760px) { .lower { grid-template-columns: 1fr; } }
+  .tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  table.rank { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  table.rank td, table.rank th { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; }
+  table.rank th { color: var(--muted); font-weight: 400; font-size: .75rem; }
+  .muted, .help { color: var(--muted); font-size: .85rem; line-height: 1.8; margin: 0; }
+  .help b { color: var(--fg); }
+  kbd { font-size: .72rem; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>レールクイズ（仮デザイン）</h1>
+    <p class="sub">スマホをハンドルにするか、体を傾けて、正解のレールへ進め！ Webカメラに映った自分がトロッコに乗ります。</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="cv"></canvas>
+    <div class="pop" id="pop"></div>
+
+    <div class="menu" id="mTitle">
+      <div class="inner">
+        <h2>レールクイズ</h2>
+        <p class="howto">トロッコが分かれ道に着くまでに、<b>正解の方へスマホを傾けよう</b>。<br>
+          スマホを<b>横にしてハンドルのように両手で持ち</b>、右に傾けると右、左に傾けると左のレールへ（3択はまっすぐ持つと真ん中）。<br>
+          スマホがなければ、<b>カメラの前で体を左右に傾けて</b>もOK。不正解のレールは途中で途切れていて、ライフが減ります。</p>
+        <div class="row"><span class="lbl">難易度</span>
+          <button class="air" data-level="1" aria-pressed="true">簡単<small>2択 ・ ライフ5</small></button>
+          <button class="air" data-level="2" aria-pressed="false">普通<small>2択 ・ ライフ3</small></button>
+          <button class="air" data-level="3" aria-pressed="false">難しい<small>3択 ・ ライフ2</small></button>
+          <button class="air" data-level="4" aria-pressed="false">激ムズ<small>3択 ・ ライフ1</small></button>
+        </div>
+        <div class="pair" id="pair">
+          <div class="qr" id="qr"></div>
+          <div>
+            <p>スマホのカメラでQRコードを読み取ってください。</p>
+            <p>部屋番号: <code id="roomCode">準備中…</code></p>
+            <p id="pairStatus">接続待ち（スマホがなくても ←→ キーで遊べます）</p>
+            <p class="warn" id="pairWarn" hidden></p>
+          </div>
+        </div>
+        <button class="air go" id="goBtn">スタート</button>
+        <p class="muted" id="startNote">スタートを押すとWebカメラを使います（初回は許可を聞かれます）。カメラがなくても遊べます</p>
+      </div>
+    </div>
+
+    <div class="menu" id="mResult" hidden>
+      <div class="inner">
+        <h2 id="resHead">ゴール！</h2>
+        <div class="res" id="resScore"></div>
+        <p class="muted" id="resStats"></p>
+        <ol class="review" id="review"></ol>
+        <form class="entry" id="entry" hidden>
+          <span id="entryMsg"></span>
+          <input id="nameIn" maxlength="10" placeholder="なまえ" autocomplete="off">
+          <button class="btn" type="submit">ランキングに登録</button>
+        </form>
+        <div class="row">
+          <button class="air go" id="againBtn">もう一回</button>
+          <button class="air" id="toTitleBtn">タイトルへ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button class="btn" id="homeBtn">最初に戻る <kbd>Esc</kbd></button>
+    <button class="btn" id="soundBtn" aria-pressed="true">音</button>
+    <span class="muted">スマホがないとき: <kbd>←</kbd> <kbd>→</kbd>（3択の真ん中は何も押さない）</span>
+    <span class="sp"></span>
+    <button class="btn" id="fsBtn">全画面</button>
+  </div>
+
+  <section class="lower">
+    <div class="card">
+      <h3>ランキング（正解数）</h3>
+      <div class="tabs" id="rankTabs">
+        <button class="btn" data-rank="1" aria-pressed="true">簡単</button>
+        <button class="btn" data-rank="2" aria-pressed="false">普通</button>
+        <button class="btn" data-rank="3" aria-pressed="false">難しい</button>
+        <button class="btn" data-rank="4" aria-pressed="false">激ムズ</button>
+      </div>
+      <div id="rankBody"></div>
+    </div>
+    <div class="card">
+      <h3>あそびかた</h3>
+      <p class="help">
+        <b>ハンドル:</b> スマホを横にして両手で持ちます。右に傾けると右、左に傾けると左のレールが光ります。傾きがずれているときは、スマホの「まっすぐに合わせる」を押します。<br>
+        <b>体で:</b> スマホがないときは、Webカメラの前で体（頭と肩）を左右に傾けるとハンドルになります。カメラに映った自分の顔が、トロッコの乗り手になります。<br>
+        <b>答える:</b> 分かれ道に着いた瞬間に光っているレールへ進みます。<br>
+        <b>難易度:</b> 簡単（2択・ライフ5）／普通（2択・ライフ3）／難しい（3択・ライフ2）／激ムズ（3択・ライフ1）。難しいほど分かれ道に着くのが早くなります。全10問。
+      </p>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script type="module">
+// ================== 問題（ここを書き換えれば問題を差し替えられる） ==================
+// a の最初が正解、残りがまちがい（2択のときは最初の2つ、3択のときは3つ全部を使う。並びは毎回シャッフル）
+// ※ 学校（京都芸術デザイン専門学校）の問題は、内容が決まったらここに追加・差し替えする
+const QUESTIONS = {
+  1: [ // 簡単: 一般常識
+    { g: "自然", q: "日本でいちばん高い山は？", a: ["富士山", "北岳", "槍ヶ岳"] },
+    { g: "くらし", q: "うるう年ではない1年は何日？", a: ["365日", "360日", "366日"] },
+    { g: "自然", q: "日本では、虹は何色と言われることが多い？", a: ["7色", "5色", "9色"] },
+    { g: "自然", q: "太陽がしずむ方角は？", a: ["西", "東", "北"] },
+    { g: "理科", q: "水がこおる温度は？（ふつうの気圧で）", a: ["0℃", "10℃", "−10℃"] },
+    { g: "生き物", q: "パンダが主に食べるものは？", a: ["竹（ササ）", "バナナ", "魚"] },
+    { g: "くらし", q: "信号で「止まれ」は何色？", a: ["赤", "青", "黄"] },
+    { g: "くらし", q: "1ダースはいくつ？", a: ["12", "10", "20"] },
+    { g: "京都", q: "京都にある、金色にかがやくお寺の通称は？", a: ["金閣寺", "銀閣寺", "清水寺"] },
+    { g: "スポーツ", q: "サッカーで、手を使ってよいポジションは？", a: ["ゴールキーパー", "ディフェンダー", "フォワード"] },
+    { g: "宇宙", q: "地球のまわりを回っている天体は？", a: ["月", "太陽", "火星"] },
+    { g: "算数", q: "三角形の3つの角を全部たすと？", a: ["180°", "360°", "90°"] },
+    { g: "スポーツ", q: "オリンピックのマークの輪の数は？", a: ["5つ", "4つ", "6つ"] },
+    { g: "くらし", q: "1時間は何分？", a: ["60分", "100分", "30分"] },
+    { g: "音楽", q: "ふつうのピアノの鍵盤、多いのは白と黒どっち？", a: ["白", "黒", "同じ数"] },
+  ],
+  2: [ // 普通: 雑学・一般常識
+    { g: "生き物", q: "日本の国鳥は？", a: ["キジ", "ツル", "トキ"] },
+    { g: "地理", q: "世界でいちばん広い海（大洋）は？", a: ["太平洋", "大西洋", "インド洋"] },
+    { g: "からだ", q: "大人の人間の骨の数はおよそ？", a: ["約200個", "約100個", "約500個"] },
+    { g: "理科", q: "水の化学式は？", a: ["H₂O", "CO₂", "O₂"] },
+    { g: "アート", q: "「モナ・リザ」を描いたのは？", a: ["レオナルド・ダ・ヴィンチ", "ミケランジェロ", "ゴッホ"] },
+    { g: "デザイン", q: "光の三原色（RGB）に入っていないのは？", a: ["黄", "赤", "緑"] },
+    { g: "地理", q: "日本でいちばん面積が大きい都道府県は？", a: ["北海道", "岩手県", "長野県"] },
+    { g: "京都", q: "たくさんの朱色の鳥居で有名な、京都の神社は？", a: ["伏見稲荷大社", "八坂神社", "平安神宮"] },
+    { g: "遊び", q: "将棋で、はじめに並べる駒は1人何枚？", a: ["20枚", "16枚", "18枚"] },
+    { g: "くらし", q: "1円玉の重さは？", a: ["1g", "2g", "0.5g"] },
+    { g: "自然", q: "富士山の高さは？", a: ["3776m", "3667m", "3876m"] },
+    { g: "スポーツ", q: "サッカーの試合に出る選手は1チーム何人？", a: ["11人", "9人", "12人"] },
+    { g: "生き物", q: "タコの心臓の数は？", a: ["3つ", "1つ", "2つ"] },
+    { g: "パソコン", q: "Windowsで「Ctrl＋Z」を押すと、ふつうはどうなる？", a: ["元に戻す", "保存する", "コピーする"] },
+    { g: "Web", q: "Webページを作るときに使う言語は？", a: ["HTML", "Excel", "MP3"] },
+    { g: "デザイン", q: "色相環で、赤の反対側（補色）にある色は？", a: ["青緑", "黄", "紫"] },
+  ],
+  3: [ // 難しい
+    { g: "理科", q: "元素記号「Au」の元素は？", a: ["金", "銀", "アルミニウム"] },
+    { g: "地理", q: "日本でいちばん長い川は？", a: ["信濃川", "利根川", "石狩川"] },
+    { g: "宇宙", q: "地球から月までのきょりは、およそ？", a: ["約38万km", "約3.8万km", "約380万km"] },
+    { g: "文学", q: "「吾輩は猫である」を書いたのは？", a: ["夏目漱石", "森鷗外", "芥川龍之介"] },
+    { g: "歴史", q: "平安京に都が移された年は？", a: ["794年", "710年", "1192年"] },
+    { g: "社会", q: "衆議院議員の任期は何年？", a: ["4年", "6年", "3年"] },
+    { g: "理科", q: "光の速さは、およそ秒速？", a: ["約30万km", "約3万km", "約300万km"] },
+    { g: "デザイン", q: "印刷の色「CMYK」の「K」が表す色は？", a: ["黒", "灰色", "緑"] },
+    { g: "からだ", q: "血液の中で、酸素を運ぶのは？", a: ["赤血球", "白血球", "血小板"] },
+    { g: "遊び", q: "チェスで、はじめに並べる駒は1人何個？", a: ["16個", "20個", "12個"] },
+    { g: "文学", q: "シェイクスピアの作品ではないのは？", a: ["ファウスト", "ハムレット", "マクベス"] },
+    { g: "京都", q: "金閣寺の正式な名前は？", a: ["鹿苑寺", "慈照寺", "龍安寺"] },
+    { g: "地理", q: "地球の表面のうち、海の割合はおよそ？", a: ["約7割", "約5割", "約9割"] },
+    { g: "Web", q: "Webで色を「#FFFFFF」と書くと何色？", a: ["白", "黒", "赤"] },
+    { g: "京都", q: "日本でいちばん高い木造の五重塔がある京都のお寺は？", a: ["東寺", "醍醐寺", "仁和寺"] },
+    { g: "文学", q: "「源氏物語」を書いたのは？", a: ["紫式部", "清少納言", "和泉式部"] },
+  ],
+  4: [ // 激ムズ
+    { g: "理科", q: "元素記号「W」の元素は？", a: ["タングステン", "亜鉛", "ウラン"] },
+    { g: "宇宙", q: "1光年は、およそ何km？", a: ["約9.5兆km", "約9500億km", "約95兆km"] },
+    { g: "遊び", q: "将棋で、成ることができない駒は？", a: ["金将", "銀将", "桂馬"] },
+    { g: "からだ", q: "人間の内臓で、いちばん大きいのは？", a: ["肝臓", "心臓", "胃"] },
+    { g: "歴史", q: "清少納言が仕えた中宮は？", a: ["定子", "彰子", "威子"] },
+    { g: "地理", q: "世界でいちばん面積が小さい国は？", a: ["バチカン市国", "モナコ", "ナウル"] },
+    { g: "地理", q: "海に面していない都道府県はいくつ？", a: ["8", "6", "10"] },
+    { g: "算数", q: "円周率を小数第5位まで正しく書くと？", a: ["3.14159", "3.14169", "3.14156"] },
+    { g: "デザイン", q: "黄金比は、およそ 1 : ？", a: ["1.618", "1.414", "1.732"] },
+    { g: "Web", q: "「HTTP」の「P」は何の略？", a: ["Protocol", "Program", "Page"] },
+    { g: "音楽", q: "標準的なピアノの鍵盤の数は？", a: ["88鍵", "76鍵", "96鍵"] },
+    { g: "京都", q: "京都三大祭に入らないのは？", a: ["天神祭", "祇園祭", "葵祭"] },
+    { g: "からだ", q: "目の中で、色を見分ける細胞は？", a: ["錐体細胞", "杆体細胞", "神経節細胞"] },
+    { g: "デザイン", q: "RGBで R255・G255・B0 は何色？", a: ["黄", "紫", "水色"] },
+    { g: "くらし", q: "日本でいちばん多い名字は？（よくある調査で）", a: ["佐藤", "鈴木", "高橋"] },
+  ],
+};
+
+// --- pure:start（画面に依存しない部分: 問題の出し方・ハンドル→選択・ゲームの進行） ---
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// 難易度: lives=ライフ、n=選択肢の数、T=分かれ道に着くまでの秒数
+const LEVELS = {
+  1: { name: "簡単", lives: 5, n: 2, T: 9 },
+  2: { name: "普通", lives: 3, n: 2, T: 7.5 },
+  3: { name: "難しい", lives: 2, n: 3, T: 6.5 },
+  4: { name: "激ムズ", lives: 1, n: 3, T: 5.5 },
+};
+const ROUND_Q = 10;
+function shuffle(arr, rand) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+// 1回分の問題: 難易度の問題から10問（重ならない）。選択肢の並びもシャッフル
+function buildRound(bank, level, rand, count = ROUND_Q) {
+  const n = LEVELS[level].n;
+  return shuffle(bank[level], rand).slice(0, count).map((it) => {
+    const opts = shuffle(it.a.slice(0, n), rand);
+    return { q: it.q, g: it.g, opts, correct: opts.indexOf(it.a[0]), answer: it.a[0] };
+  });
+}
+// ハンドルの角度（度、右がプラス）→ どのレールか（0 = いちばん左）
+// 2択: 6°をこえて傾けた方。傾きが小さい間は直前の選択のまま（はじめは未選択）
+// 3択: ±14° の内側は真ん中
+function choiceFromSteer(a, n, prev) {
+  if (n === 2) return a > 6 ? 1 : a < -6 ? 0 : prev;
+  return a < -14 ? 0 : a > 14 ? 2 : 1;
+}
+// 体の傾き → ハンドルの角度（度、右がプラス）。画面は鏡写し（自分の右側が画面の右）
+// 肩の線の傾き（右に傾くと右肩が下がる）と、頭が体の中心からどれだけ横にずれたかを合わせる。見えなければ null
+function leanSteer(s) {
+  const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
+  if (!s || !ok(s.lSh) || !ok(s.rSh)) return null;
+  const sw = Math.hypot(s.rSh.x - s.lSh.x, s.rSh.y - s.lSh.y); if (!sw) return null;
+  const [L, R] = s.lSh.x <= s.rSh.x ? [s.lSh, s.rSh] : [s.rSh, s.lSh];              // 画面の左にある肩・右にある肩
+  const tilt = Math.atan2(R.y - L.y, R.x - L.x) * 180 / Math.PI;                    // 右側が下がるとプラス
+  const head = ok(s.nose) ? (s.nose.x - (L.x + R.x) / 2) / sw : 0;                  // 頭が右へずれるとプラス
+  return clamp(tilt * 1.5 + head * 60, -60, 60);
+}
+// ゲームの進行。step(dt秒, ハンドルの角度) → 起きたこと
+const Z0 = 40, BRANCH_L = 14;    // 分かれ道までのきょり(m)、分かれた先で横に離れきるまでのきょり(m)
+function createRailGame(level, rand = Math.random, bank = QUESTIONS) {
+  const L = LEVELS[level], round = buildRound(bank, level, rand);
+  const g = { phase: "ready", phaseT: 0, i: 0, P: 0, lives: L.lives, correct: 0, choice: null, locked: null, log: [], over: false, clear: false, round, n: L.n, speed: Z0 / L.T };
+  const nextQ = (ev) => {
+    if (g.lives <= 0) { g.over = true; g.clear = false; ev.push({ type: "over", clear: false }); return; }
+    if (g.i + 1 >= round.length) { g.over = true; g.clear = true; ev.push({ type: "over", clear: true }); return; }
+    g.i++; g.P = 0; g.choice = null; g.locked = null; g.phase = "approach"; g.phaseT = 0; ev.push({ type: "next", i: g.i });
+  };
+  return {
+    g, L,
+    get q() { return round[g.i]; },
+    step(dt, steer) {
+      const ev = []; if (g.over) return ev;
+      g.phaseT += dt;
+      if (g.phase === "ready") { if (g.phaseT >= 2.5) { g.phase = "approach"; g.phaseT = 0; ev.push({ type: "start" }); } return ev; }
+      if (g.phase === "approach") {
+        g.choice = choiceFromSteer(steer, g.n, g.choice);
+        g.P += g.speed * dt;
+        if (g.P >= Z0) {
+          // 分かれ道に着いた → 今の選択で決定（2択で一度も傾けていなければ、今の傾きの向き）
+          const q = round[g.i]; const c = g.choice ?? (steer >= 0 ? 1 : 0);
+          g.locked = c; const ok = c === q.correct; if (ok) g.correct++;
+          g.log.push({ q: q.q, chosen: q.opts[c], answer: q.answer, ok });
+          g.phase = "branch"; g.phaseT = 0; ev.push({ type: "lock", choice: c, ok });
+        }
+        return ev;
+      }
+      if (g.phase === "branch") {
+        g.P += g.speed * dt;
+        const ok = g.locked === round[g.i].correct;
+        if (!ok && g.P >= Z0 + BRANCH_L) { g.phase = "crash"; g.phaseT = 0; g.lives--; ev.push({ type: "crash", lives: g.lives }); }
+        else if (ok && g.P >= Z0 + BRANCH_L + 4) nextQ(ev);
+        return ev;
+      }
+      if (g.phase === "crash" && g.phaseT >= 1.4) nextQ(ev);
+      return ev;
+    },
+  };
+}
+function insertRank(list, entry, max = 10) {
+  const next = [...list, entry].sort((a, b) => b.score - a.score || b.lives - a.lives || a.at - b.at).slice(0, max);
+  return { list: next, place: next.indexOf(entry) };
+}
+// --- pure:end ---
+
+// ================== 画面・入力・音・進行 ==================
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), cv = $("cv"), ctx = cv.getContext("2d");
+const W = 1280, H = 720; cv.width = W; cv.height = H;
+const params = new URLSearchParams(location.search), DEBUG = params.has("debug");
+const S = { level: 1, sound: true, screen: "title" };
+let game = null, lastNow = 0;
+const steerIn = { phone: 0, phoneAt: -1e9, key: 0, body: 0, bodyAt: -1e9 };
+// どの操作で動かしているか: スマホ（つながって動いている）＞ キー（押している間）＞ 体の傾き（カメラ）
+function steerSource() { const now = performance.now(); return now - steerIn.phoneAt < 1500 ? "phone" : steerIn.key !== 0 ? "key" : now - steerIn.bodyAt < 600 ? "body" : "none"; }
+const steerNow = () => { const s = steerSource(); return s === "phone" ? steerIn.phone : s === "key" ? steerIn.key : s === "body" ? steerIn.body : 0; };
+
+// ---------- 音 ----------
+const Snd = {
+  ctx: null, gain: null,
+  init() { if (this.ctx) return; try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.gain = this.ctx.createGain(); this.gain.gain.value = S.sound ? 0.8 : 0; this.gain.connect(this.ctx.destination); } catch (e) { console.warn(e); } },
+  on(v) { if (this.gain) this.gain.gain.value = v ? 0.8 : 0; },
+  tone(f, d, type = "triangle", vol = .18, at = 0) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime + at, o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + d); o.connect(g).connect(this.gain); o.start(t); o.stop(t + d + .02);
+  },
+  noise(d, vol, freq) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime, b = c.createBuffer(1, Math.max(1, c.sampleRate * d), c.sampleRate), x = b.getChannelData(0);
+    for (let i = 0; i < x.length; i++) x[i] = Math.random() * 2 - 1;
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s.buffer = b; f.type = "lowpass"; f.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + d); s.connect(f).connect(g).connect(this.gain); s.start(t); s.stop(t + d + .02);
+  },
+  clack() { this.noise(0.06, 0.12, 900); },
+  good() { [784, 988, 1319].forEach((f, i) => this.tone(f, .2, "triangle", .16, i * .08)); },
+  crash() { this.noise(0.7, 0.45, 500); this.tone(90, .5, "sawtooth", .2); },
+  end(clear) { (clear ? [523, 659, 784, 1047] : [392, 330, 262]).forEach((f, i) => this.tone(f, .3, "triangle", .16, i * .14)); },
+};
+
+// ---------- 進行 ----------
+function setScreen(sc) { S.screen = sc; $("mTitle").hidden = sc !== "title"; $("mResult").hidden = sc !== "result"; if (sc === "title") updatePairUI(); }
+function pop(text, cls) { const el = $("pop"); el.textContent = text; el.className = `pop ${cls}`; void el.offsetWidth; el.classList.add("show"); }
+function startGame() {
+  Snd.init();
+  if (!cam.ready && !cam.failed) { startCamera(true); return; }          // カメラを準備してから始める（使えなくても始める）
+  game = createRailGame(S.level); G.shake = 0; G.lastClack = 0; setScreen("play"); sendState();
+}
+const G = { shake: 0, lastClack: 0, flash: 0 };
+function onEvents(evs) {
+  for (const e of evs) {
+    if (e.type === "start") pop("出発！", "normal");
+    if (e.type === "lock") { if (e.ok) { Snd.good(); pop("正解！", "good"); sendFx("good", "正解！"); } else sendFx("lock", ""); sendState(); }
+    if (e.type === "crash") { Snd.crash(); G.shake = 1; G.flash = performance.now(); pop(e.lives > 0 ? "不正解… ライフ−1" : "ゲームオーバー", "bad"); sendFx("crash", "ドカーン！"); }
+    if (e.type === "next") sendState();
+    if (e.type === "over") { Snd.end(e.clear); setTimeout(finishGame, 900); }
+  }
+}
+function finishGame() {
+  if (!game) return;
+  const g = game.g; setScreen("result"); sendState();
+  $("resHead").textContent = g.clear ? "ゴール！" : "ゲームオーバー";
+  $("resScore").textContent = `${g.round.length}問中 ${g.correct}問 正解`;
+  $("resStats").textContent = `${LEVELS[S.level].name} ・ 残りライフ ${g.lives}${g.clear ? "" : ` ・ ${g.i + 1}問目で終了`}`;
+  const ol = $("review"); ol.replaceChildren();
+  for (const l of g.log) { const li = document.createElement("li"); li.textContent = `${l.q} → ${l.answer}${l.ok ? "" : `（あなた: ${l.chosen}）`}`; if (!l.ok) li.className = "ng"; ol.append(li); }
+  const would = insertRank(loadRanks()[S.level] || [], { score: g.correct, lives: g.lives, at: Date.now() }), form = $("entry");
+  if (g.correct > 0 && would.place >= 0) { form.hidden = false; $("entryMsg").textContent = `${LEVELS[S.level].name}で ${would.place + 1} 位！`; $("nameIn").value = ""; form.dataset.score = g.correct; form.dataset.lives = g.lives; }
+  else form.hidden = true;
+}
+
+// ---------- ランキング ----------
+const RANK_KEY = "railquiz-rank-v1";
+function loadRanks() { try { return JSON.parse(localStorage.getItem(RANK_KEY)) || {}; } catch { return {}; } }
+function saveRanks(r) { try { localStorage.setItem(RANK_KEY, JSON.stringify(r)); } catch { /* 保存できなくても遊べる */ } }
+let lastEntry = null;
+$("entry").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const r = loadRanks(), entry = { score: Number($("entry").dataset.score), lives: Number($("entry").dataset.lives), at: Date.now(), name: ($("nameIn").value.trim() || "ななしさん").slice(0, 10) };
+  r[S.level] = insertRank(r[S.level] || [], entry).list; saveRanks(r); lastEntry = entry; $("entry").hidden = true; setRankView(S.level);
+});
+function setRankView(k) {
+  for (const b of document.querySelectorAll("#rankTabs .btn")) b.setAttribute("aria-pressed", String(b.dataset.rank === String(k)));
+  const list = loadRanks()[k] || [], body = $("rankBody");
+  if (!list.length) { body.innerHTML = '<p class="muted">まだ記録がありません。</p>'; return; }
+  const t = document.createElement("table"); t.className = "rank"; t.innerHTML = "<tr><th>順位</th><th>なまえ</th><th>正解</th><th>ライフ</th></tr>";
+  list.forEach((e, i) => { const tr = document.createElement("tr"); for (const v of [i + 1, e.name, `${e.score}問`, e.lives]) { const td = document.createElement("td"); td.textContent = v; tr.append(td); } if (lastEntry && lastEntry.at === e.at) tr.style.color = "var(--accent)"; t.append(tr); });
+  body.replaceChildren(t);
+}
+
+// ---------- 描画（遠近法で線路を描く） ----------
+const HZ = 250, F = 700, CAM_H = 2.2, GAP = 5.5;   // 地平線の高さ、焦点距離、目の高さ(m)、分かれたレールの間隔(m)
+const smooth = (u) => u * u * (3 - 2 * u);
+const branchOffset = (k, n) => (k - (n - 1) / 2) * GAP;
+function railX(k, n, zw) { return zw <= Z0 ? 0 : branchOffset(k, n) * smooth(clamp((zw - Z0) / BRANCH_L, 0, 1)); }   // 世界の位置 zw でのレール k の横位置
+let camX = 0;
+function proj(x, y, z) { if (z < 0.6) return null; return { x: W / 2 + F * (x - camX) / z, y: HZ + F * (CAM_H - y) / z, k: F / z }; }
+function wrapText(text, maxW) { const out = []; let cur = ""; for (const ch of text) { if (ctx.measureText(cur + ch).width > maxW && cur) { out.push(cur); cur = ch; } else cur += ch; } if (cur) out.push(cur); return out; }
+function drawScene(now) {
+  const g = game?.g, n = g?.n ?? 2, P = g?.P ?? 0;
+  // 空・山・地面
+  const sky = ctx.createLinearGradient(0, 0, 0, HZ); sky.addColorStop(0, "#6fb7ea"); sky.addColorStop(1, "#cfeaf9"); ctx.fillStyle = sky; ctx.fillRect(0, 0, W, HZ);
+  ctx.fillStyle = "#8fb48a"; ctx.beginPath(); ctx.moveTo(0, HZ); for (let x = 0; x <= W; x += 80) ctx.lineTo(x, HZ - 40 - 30 * Math.sin(x / 170) - 20 * Math.sin(x / 61)); ctx.lineTo(W, HZ); ctx.fill();
+  const gr = ctx.createLinearGradient(0, HZ, 0, H); gr.addColorStop(0, "#9bc47a"); gr.addColorStop(1, "#5f9a45"); ctx.fillStyle = gr; ctx.fillRect(0, HZ, W, H - HZ);
+  // カメラの横位置: 分かれ道を過ぎたら選んだレールについていく
+  camX = g && g.locked != null ? railX(g.locked, n, P + 5) : 0;
+  const reveal = g && (g.phase === "branch" || g.phase === "crash");
+  // 電柱（スピード感）
+  for (let zw = Math.ceil((P + 1) / 8) * 8; zw < P + 90; zw += 8) for (const side of [-1, 1]) {
+    const x = side * 7 + (zw > Z0 ? side * (n - 1) * GAP / 2 : 0), a = proj(x, 0, zw - P), b = proj(x, 4.5, zw - P); if (!a || !b) continue;
+    ctx.strokeStyle = "#6b4a2a"; ctx.lineWidth = Math.max(1, 0.18 * a.k); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  // レール: 分かれ道までは1本、そこから n 本。答えが出たら、まちがいのレールは途中で途切れている
+  const tracks = [];
+  tracks.push({ k: -1, z0: P + 0.8, z1: Math.min(Z0, P + 95) });
+  for (let k = 0; k < n; k++) { const broken = reveal && k !== game.q.correct; tracks.push({ k, z0: Math.max(Z0, P + 0.8), z1: broken ? Z0 + BRANCH_L + 1.5 : P + 95, broken }); }
+  for (const tr of tracks) {
+    if (tr.z1 <= tr.z0) continue;
+    const xAt = (zw) => (tr.k < 0 ? 0 : railX(tr.k, n, zw));
+    // まくら木（世界に固定 → 進むと流れる）
+    ctx.fillStyle = "#7a5634";
+    for (let zw = Math.ceil(tr.z0); zw < tr.z1; zw += 1) { const a = proj(xAt(zw) - 0.85, 0, zw - P), b = proj(xAt(zw) + 0.85, 0, zw - P); if (!a || !b) continue; ctx.fillRect(a.x, a.y - Math.max(1, 0.12 * a.k) / 2, b.x - a.x, Math.max(1.5, 0.12 * a.k)); }
+    // レール2本
+    const sel = g && g.phase === "approach" && tr.k >= 0 && g.choice === tr.k;
+    for (const side of [-0.6, 0.6]) {
+      ctx.strokeStyle = sel ? "#ffcc33" : tr.k >= 0 && reveal ? (tr.k === game.q.correct ? "#44e08f" : "#ff5b72") : "#cfd6de";
+      ctx.lineWidth = sel ? 5 : 3; ctx.beginPath(); let started = false;
+      for (let zw = tr.z0; zw <= tr.z1; zw += Math.max(0.3, (zw - P) * 0.06)) { const p = proj(xAt(zw) + side, 0.05, zw - P); if (!p) continue; started ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); started = true; }
+      ctx.stroke();
+    }
+    // 途切れたレールの先: バツ印のさく
+    if (tr.broken) { const zb = tr.z1, a = proj(xAt(zb) - 1.1, 0, zb - P), b = proj(xAt(zb) + 1.1, 1.4, zb - P); if (a && b) { ctx.fillStyle = "#ff5b72"; ctx.fillRect(a.x, b.y, b.x - a.x, a.y - b.y); ctx.strokeStyle = "#fff"; ctx.lineWidth = Math.max(2, 0.12 * a.k); ctx.beginPath(); ctx.moveTo(a.x, b.y); ctx.lineTo(b.x, a.y); ctx.moveTo(b.x, b.y); ctx.lineTo(a.x, a.y); ctx.stroke(); } }
+  }
+  // 答えの看板（分かれ道のすぐ先、それぞれのレールの上）
+  if (g && g.phase !== "ready") {
+    const q = game.q, zb = Z0 + 7;
+    for (let k = 0; k < n; k++) {
+      const x = railX(k, n, zb), c = proj(x, 3.0, zb - P), post = proj(x, 0, zb - P); if (!c || !post) continue;
+      const bw = 2.9 * c.k, bh = 1.15 * c.k, col = reveal ? (k === q.correct ? "#44e08f" : "#ff5b72") : g.choice === k ? "#ffcc33" : "#ffffff";
+      ctx.strokeStyle = "#6b4a2a"; ctx.lineWidth = Math.max(2, 0.12 * c.k); ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(post.x, post.y); ctx.stroke();
+      ctx.fillStyle = col; ctx.strokeStyle = "#1d2b3a"; ctx.lineWidth = Math.max(2, 0.06 * c.k);
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(c.x - bw / 2, c.y - bh / 2, bw, bh, bh * 0.2) : ctx.rect(c.x - bw / 2, c.y - bh / 2, bw, bh); ctx.fill(); ctx.stroke();
+      const fs = clamp(0.42 * c.k, 9, 44); ctx.fillStyle = "#1d2b3a"; ctx.font = `bold ${fs}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const lines = wrapText(q.opts[k], bw * 0.9).slice(0, 2); lines.forEach((ln, i) => ctx.fillText(ln, c.x, c.y + (i - (lines.length - 1) / 2) * fs * 1.1)); ctx.textBaseline = "alphabetic";
+    }
+  }
+  // トロッコ（手前）: ハンドルに合わせて少し傾く
+  const st = steerNow(), crash = g && g.phase === "crash";
+  ctx.save(); ctx.translate(W / 2 + (crash ? (Math.random() - 0.5) * 30 * G.shake : 0), H - 40); ctx.rotate(clamp(st, -40, 40) * Math.PI / 180 * 0.25 + (crash ? -0.25 : 0));
+  ctx.fillStyle = "#333"; for (const x of [-120, 120]) { ctx.beginPath(); ctx.arc(x, 10, 26, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = "#8a5a2b"; ctx.beginPath(); ctx.moveTo(-190, -10); ctx.lineTo(190, -10); ctx.lineTo(160, -120); ctx.lineTo(-160, -120); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#6e4520"; ctx.fillRect(-190, -40, 380, 14); ctx.fillRect(-175, -95, 350, 12);
+  ctx.fillStyle = "#444"; ctx.fillRect(-60, -150, 120, 12); ctx.fillRect(-6, -150, 12, 34);   // ハンドル
+  drawRider();
+  ctx.restore();
+  if (crash) { ctx.fillStyle = `rgba(255,60,60,${0.35 * Math.max(0, 1 - (now - G.flash) / 700)})`; ctx.fillRect(0, 0, W, H); G.shake *= 0.94; }
+}
+// 乗り手 = カメラに映った自分の顔（顔のまわりを丸く切り抜いて、トロッコの上に）
+function drawRider() {
+  const f = cam.faceBox; if (!f || !cam.ready || video.readyState < 2 || performance.now() - cam.faceAt > 800) return;
+  const r = 78, cy = -150 - r + 10;
+  ctx.save(); ctx.beginPath(); ctx.arc(0, cy, r, 0, Math.PI * 2); ctx.closePath(); ctx.fillStyle = "#222"; ctx.fill(); ctx.clip();
+  // 映像は鏡写しで描く（自分が右に傾くと、乗り手も右に傾いて見える）
+  ctx.translate(0, cy); ctx.scale(-1, 1);
+  ctx.drawImage(video, f.x - f.size / 2, f.y - f.size / 2, f.size, f.size, -r, -r, r * 2, r * 2);
+  ctx.restore();
+  ctx.strokeStyle = "#ffcc33"; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(0, cy, r, 0, Math.PI * 2); ctx.stroke();
+}
+function drawHud(now) {
+  const g = game?.g; if (!g) return;
+  const q = game.q;
+  // 問題
+  ctx.fillStyle = "rgba(5,6,13,.82)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(70, 14, W - 140, 120, 18) : ctx.rect(70, 14, W - 140, 120); ctx.fill();
+  ctx.fillStyle = "#a0a7d0"; ctx.font = "16px sans-serif"; ctx.textAlign = "left"; ctx.fillText(`第${g.i + 1}問 / ${g.round.length}　［${q.g}］`, 96, 42);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 34px sans-serif"; ctx.textAlign = "center";
+  const lines = wrapText(g.phase === "ready" ? "スマホを横にして、ハンドルのように持とう" : q.q, W - 220).slice(0, 2); lines.forEach((ln, i) => ctx.fillText(ln, W / 2, 84 + i * 40 - (lines.length - 1) * 16));
+  // 分かれ道までのきょり
+  if (g.phase === "approach") { const k = clamp(g.P / Z0, 0, 1); ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(96, 122, W - 192, 6); ctx.fillStyle = k > 0.75 ? "#ff5b72" : "#ffcc33"; ctx.fillRect(96, 122, (W - 192) * k, 6); }
+  // ライフ
+  for (let i = 0; i < LEVELS[S.level].lives; i++) { const x = W - 50 - i * 34, y = 170; ctx.fillStyle = i < g.lives ? "#ff5b72" : "rgba(255,255,255,.25)"; ctx.beginPath(); ctx.moveTo(x, y + 10); ctx.bezierCurveTo(x - 20, y - 4, x - 10, y - 18, x, y - 7); ctx.bezierCurveTo(x + 10, y - 18, x + 20, y - 4, x, y + 10); ctx.fill(); }
+  ctx.fillStyle = "rgba(5,6,13,.7)"; ctx.fillRect(14, 150, 190, 64); ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "left"; ctx.fillText(`${LEVELS[S.level].name} ・ 正解 ${g.correct}`, 24, 177);
+  const src = steerSource(); ctx.fillStyle = "#a0a7d0"; ctx.font = "14px sans-serif"; ctx.fillText(`ハンドル: ${{ phone: "スマホ", key: "キー", body: "体の傾き", none: "なし（体が見えません）" }[src]}`, 24, 202);
+  // 答えの札（手前に大きく）: 矢印と、いま選んでいるもの
+  if (g.phase !== "ready") {
+    const n = g.n, w = n === 2 ? 420 : 330, gap = 24, x0 = W / 2 - (n * w + (n - 1) * gap) / 2, y = H - 230;
+    for (let k = 0; k < n; k++) {
+      const x = x0 + k * (w + gap), sel = g.phase === "approach" ? g.choice === k : g.locked === k;
+      const reveal = g.phase !== "approach", col = reveal ? (k === q.correct ? "#44e08f" : sel ? "#ff5b72" : "rgba(25,29,54,.9)") : sel ? "#ffcc33" : "rgba(25,29,54,.9)";
+      ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, 64, 14) : ctx.rect(x, y, w, 64); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = sel && !reveal ? "#241a00" : "#fff"; ctx.font = "bold 24px sans-serif"; ctx.textAlign = "center";
+      const arrow = n === 2 ? (k === 0 ? "◀ " : "") : k === 0 ? "◀ " : k === 1 ? "▲ " : "";
+      const tail = n === 2 ? (k === 1 ? " ▶" : "") : k === 2 ? " ▶" : "";
+      ctx.fillText(`${arrow}${q.opts[k]}${tail}`, x + w / 2, y + 41);
+    }
+    if (g.phase === "approach" && g.choice == null) { ctx.fillStyle = "#fff"; ctx.font = "bold 20px sans-serif"; ctx.fillText("ハンドルを傾けて選ぼう！", W / 2, y - 14); }
+  } else { ctx.fillStyle = "#fff"; ctx.font = "bold 80px sans-serif"; ctx.textAlign = "center"; ctx.fillText(`${Math.ceil(2.5 - g.phaseT)}`, W / 2, H / 2 + 20); }
+  // ハンドルの傾き（小さなメーター）
+  const st = clamp(steerNow(), -45, 45), cx = W / 2, cy = H - 140;
+  ctx.strokeStyle = "rgba(255,255,255,.3)"; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(cx, cy + 60, 70, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke();
+  const ang = Math.PI * 1.5 + st * Math.PI / 180 * 0.55; ctx.strokeStyle = "#ffcc33"; ctx.beginPath(); ctx.moveTo(cx, cy + 60); ctx.lineTo(cx + Math.cos(ang) * 74, cy + 60 + Math.sin(ang) * 74); ctx.stroke();
+  // 線路の音
+  if (g.phase === "approach" || g.phase === "branch") { const every = 1 / g.speed * 2.5; if (now - G.lastClack > every * 1000) { G.lastClack = now; Snd.clack(); } }
+}
+function render(now) { drawScene(now); if (S.screen === "play") drawHud(now); }
+
+// ---------- 入力: カメラ（体の傾き・乗り手の顔） ----------
+const video = $("video");
+const cam = { ready: false, failed: false, starting: false, pose: null, lastTs: -1, faceBox: null, faceAt: 0 };
+function camStatus(t) {
+  if (t) $("startNote").textContent = t;
+  $("goBtn").textContent = cam.starting ? "カメラ準備中…" : "スタート"; $("againBtn").textContent = cam.starting ? "カメラ準備中…" : "もう一回";
+  $("goBtn").disabled = $("againBtn").disabled = !!cam.starting;
+}
+async function startCamera(startAfter) {
+  if (cam.starting) { if (startAfter) cam.startAfter = true; return; }
+  cam.starting = true; cam.startAfter = !!startAfter; camStatus("カメラとAIを準備中…（数秒かかります。カメラの許可を聞かれたら「許可」を押してください）");
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
+    await video.play();
+    const { FilesetResolver, PoseLandmarker } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs");
+    const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const opts = { baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" }, runningMode: "VIDEO", numPoses: 1 };
+    try { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "GPU" } }); }
+    catch { cam.pose = await PoseLandmarker.createFromOptions(fs, { ...opts, baseOptions: { ...opts.baseOptions, delegate: "CPU" } }); }
+    cam.ready = true; cam.starting = false; camStatus(""); $("startNote").textContent = "カメラOK：体を左右に傾けてもハンドルになります";
+  } catch (e) {
+    console.warn(e); cam.starting = false; cam.failed = true;
+    camStatus(e?.name === "NotAllowedError" ? "カメラが許可されていないので、スマホか ←→ キーで遊びます" : "カメラが使えないので、スマホか ←→ キーで遊びます");
+  }
+  if (cam.startAfter) startGame();
+}
+function onPose(lm, now, VW, VH) {
+  if (!lm) return;
+  const P = (i) => ({ x: (1 - lm[i].x) * VW, y: lm[i].y * VH, v: lm[i].visibility ?? 1 });       // 鏡写しの画面座標（体の傾き用）
+  const s = { nose: P(0), lSh: P(11), rSh: P(12) };
+  const a = leanSteer(s);
+  if (a != null) { steerIn.body = steerIn.bodyAt > now - 300 ? steerIn.body * 0.6 + a * 0.4 : a; steerIn.bodyAt = now; }
+  // 顔のまわり（映像の元の座標。鼻を中心に、肩幅くらいの大きさ）
+  if ((lm[0].visibility ?? 1) >= 0.5 && (lm[11].visibility ?? 1) >= 0.5 && (lm[12].visibility ?? 1) >= 0.5) {
+    const sw = Math.hypot((lm[11].x - lm[12].x) * VW, (lm[11].y - lm[12].y) * VH), size = Math.max(80, sw * 1.1);
+    const box = { x: lm[0].x * VW, y: lm[0].y * VH - size * 0.05, size };
+    cam.faceBox = cam.faceBox && now - cam.faceAt < 500 ? { x: cam.faceBox.x * 0.6 + box.x * 0.4, y: cam.faceBox.y * 0.6 + box.y * 0.4, size: cam.faceBox.size * 0.8 + box.size * 0.2 } : box; cam.faceAt = now;
+  }
+}
+function camTick(now) {
+  if (!cam.ready || !cam.pose || video.readyState < 2 || video.currentTime === cam.lastVT) return;
+  cam.lastVT = video.currentTime;
+  try { const t = Math.max(Math.round(now), cam.lastTs + 1); cam.lastTs = t; const r = cam.pose.detectForVideo(video, t); onPose(r.landmarks[0], now, video.videoWidth, video.videoHeight); } catch (e) { console.warn(e); }
+}
+
+// ---------- 入力: キーボード（スマホがないとき） ----------
+const keys = new Set();
+function keySteer() { steerIn.key = (keys.has("ArrowRight") ? 30 : 0) - (keys.has("ArrowLeft") ? 30 : 0); }
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input")) return;
+  if (e.key === "Escape") return goHome();
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") { keys.add(e.key); keySteer(); e.preventDefault(); }
+});
+document.addEventListener("keyup", (e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { keys.delete(e.key); keySteer(); } });
+
+// ---------- 入力: スマホ（PeerJS でつなぐ） ----------
+const phone = { peer: null, conns: [], room: null, error: null };
+function peerOptions() {
+  const o = { debug: 0 };
+  if (params.get("peerHost")) Object.assign(o, { host: params.get("peerHost"), port: Number(params.get("peerPort") || 443), path: params.get("peerPath") || "/", secure: params.get("peerSecure") !== "0" });
+  return o;
+}
+function controllerURL() {
+  const u = new URL("rail-controller.html", location.href); u.search = "";
+  u.searchParams.set("room", phone.room);
+  for (const k of ["peerHost", "peerPort", "peerPath", "peerSecure"]) if (params.get(k)) u.searchParams.set(k, params.get(k));
+  return u.toString();
+}
+function startPhone() {
+  if (phone.peer || typeof Peer === "undefined") { if (typeof Peer === "undefined") phone.error = "通信用の部品を読み込めませんでした（←→キーで遊べます）"; return; }
+  phone.room = "rail-" + Math.random().toString(36).slice(2, 8);
+  try { phone.peer = new Peer(phone.room, peerOptions()); } catch (e) { phone.error = String(e); return; }
+  phone.retry = 0;
+  phone.peer.on("open", () => { phone.retry = 0; phone.error = null; updatePairUI(); });
+  phone.peer.on("error", (e) => { phone.error = e.type === "network" || e.type === "server-error" || e.type === "socket-error" ? "通信サーバーにつながりません（←→キーで遊べます）" : `接続エラー: ${e.type}`; updatePairUI(); });
+  phone.peer.on("disconnected", () => {
+    if (phone.retry >= 6) { phone.error = "通信サーバーにつながりません。ページを再読み込みすると、もう一度試します"; updatePairUI(); return; }
+    const wait = 1000 * Math.pow(2, phone.retry++);
+    setTimeout(() => { try { if (phone.peer && !phone.peer.destroyed && phone.peer.disconnected) phone.peer.reconnect(); } catch { /* 次の回でまた試す */ } }, wait);
+  });
+  phone.peer.on("connection", (conn) => {
+    conn.on("open", () => { if (phone.conns.length >= 1) { conn.close(); return; } phone.conns.push(conn); updatePairUI(); sendState(); Snd.tone(1200, .05, "square", .1); });
+    conn.on("data", (d) => onPhoneData(conn, d));
+    conn.on("close", () => { phone.conns = phone.conns.filter((c) => c !== conn); updatePairUI(); });
+  });
+}
+function onPhoneData(conn, d) {
+  if (!d || typeof d !== "object") return;
+  if (d.t === "steer") { steerIn.phone = clamp(Number(d.a) || 0, -90, 90); steerIn.phoneAt = performance.now(); }
+  else if (d.t === "start" && (S.screen === "title" || S.screen === "result")) startGame();
+}
+function sendFx(kind, text) { phone.conns.forEach((c) => { try { c.send({ t: "fx", kind, text }); } catch { /* 切れていたら無視 */ } }); }
+function sendState() {
+  const text = S.screen === "play" ? "ハンドルを傾けて、正解のレールへ！" : S.screen === "result" ? "ゲーム終了。「スタート / もう一回」で次のゲーム" : "PCの画面で準備ができたら「スタート」";
+  phone.conns.forEach((c) => { try { c.send({ t: "state", text, screen: S.screen }); } catch { /* 切れていたら無視 */ } });
+}
+function updatePairUI() {
+  startPhone();
+  const secure = location.protocol === "https:", warn = $("pairWarn");
+  warn.hidden = secure && !phone.error;
+  warn.textContent = phone.error || (secure ? "" : "https で公開されていないため、スマホのセンサーが使えない可能性があります（GitHub Pages などで公開してください）");
+  $("roomCode").textContent = phone.room && phone.peer?.open ? phone.room.replace("rail-", "") : "準備中…";
+  $("pairStatus").innerHTML = phone.conns.length ? '<span class="ok">スマホが接続中</span>' : "接続待ち（スマホがなくても ←→ キーで遊べます）";
+  if (phone.peer?.open && typeof qrcode !== "undefined" && $("qr").dataset.room !== phone.room) {
+    const q = qrcode(0, "M"); q.addData(controllerURL()); q.make();
+    const img = new Image(); img.src = q.createDataURL(5, 2); img.alt = "スマホ用ページのQRコード"; $("qr").replaceChildren(img); $("qr").dataset.room = phone.room;
+  }
+}
+
+// ---------- メインループ・操作 ----------
+function loop(now) {
+  try {
+    if (cam.fake) { const f = cam.fake(now); if (f != null) { steerIn.body = f; steerIn.bodyAt = now; } } else camTick(now);
+    const dt = Math.min(0.1, (now - (lastNow || now)) / 1000); lastNow = now;
+    if (S.screen === "play" && game) onEvents(game.step(dt, steerNow()));
+    render(now);
+  } catch (e) { console.error(e); }
+  requestAnimationFrame(loop);
+}
+function goHome() { game = null; setScreen("title"); sendState(); }
+function selectGroup(attr, val) { for (const b of document.querySelectorAll(`[data-${attr}]`)) b.setAttribute("aria-pressed", String(b.dataset[attr] === String(val))); }
+for (const b of document.querySelectorAll("[data-level]")) b.addEventListener("click", () => { S.level = Number(b.dataset.level); selectGroup("level", S.level); setRankView(S.level); });
+for (const b of document.querySelectorAll("#rankTabs .btn")) b.addEventListener("click", () => setRankView(b.dataset.rank));
+$("goBtn").addEventListener("click", startGame); $("againBtn").addEventListener("click", startGame);
+$("toTitleBtn").addEventListener("click", goHome); $("homeBtn").addEventListener("click", goHome);
+$("soundBtn").addEventListener("click", () => { S.sound = !S.sound; $("soundBtn").setAttribute("aria-pressed", String(S.sound)); Snd.on(S.sound); });
+$("fsBtn").addEventListener("click", () => { (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.())?.catch?.(() => {}); });
+setRankView(1); updatePairUI();
+requestAnimationFrame(loop);
+// タイトル画面で何かを押したら、裏でカメラの準備を始めておく
+document.addEventListener("pointerdown", function warm() { document.removeEventListener("pointerdown", warm); if (!cam.ready && !cam.starting && !cam.failed && !DEBUG) startCamera(false); });
+
+if (DEBUG) {
+  window.rqTest = {
+    state: () => ({ screen: S.screen, phase: game?.g.phase, i: game?.g.i, lives: game?.g.lives, correct: game?.g.correct, choice: game?.g.choice, locked: game?.g.locked, q: game && { ...game.q }, P: game?.g.P, peerOpen: !!phone.peer?.open, conns: phone.conns.length, steer: steerNow() }),
+    set: (o) => { if (o.level) { S.level = o.level; selectGroup("level", o.level); } },
+    start: () => startGame(), controllerURL: () => phone.room && controllerURL(),
+    noCamera: () => { cam.failed = true; }, fakeBody: (fn) => { cam.fake = fn; cam.ready = true; },
+    phone: (msg) => onPhoneData(null, msg), source: () => steerSource(),
+  };
+}
+</script>
+</body>
+</html>
