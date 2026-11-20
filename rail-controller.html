@@ -30,6 +30,11 @@
   .btn { border: 1px solid var(--line); border-radius: 14px; padding: 12px; font: inherit; font-size: 1rem; font-weight: 700; background: #232953; color: var(--fg); touch-action: manipulation; width: 100%; }
   .btn.go { background: var(--accent); color: #241a00; border-color: var(--accent); }
   .note { color: var(--muted); font-size: .75rem; margin: 0; text-align: center; grid-column: 1 / -1; }
+  /* 画面が自動で回らない（縦のまま）のに横に持ったとき: 中身だけ90°回して、横向きで正しく見えるようにする */
+  body.rot-cw main, body.rot-ccw main { position: fixed; top: 50%; left: 50%; width: calc(100vh - 24px); height: calc(100vw - 24px); max-width: none; }
+  body.rot-cw main { transform: translate(-50%, -50%) rotate(90deg); }
+  body.rot-ccw main { transform: translate(-50%, -50%) rotate(-90deg); }
+  body.rot-cw .wheel, body.rot-ccw .wheel { width: min(56vw, 260px); }
 </style>
 </head>
 <body>
@@ -63,17 +68,29 @@
 function upAngle(g) { return Math.atan2(g.y, g.x) * 180 / Math.PI; }
 function wrapDeg(d) { return ((d + 540) % 360) - 180; }
 function steerFrom(g, center) { return wrapDeg(upAngle(g) - center); }
+// 持ち方: 上の端が左（重力の上向きが端末の +x）→ "cw"（中身を時計回りに90°回すと正しく見える）、上の端が右 → "ccw"、縦持ち → ""
+// 境目でちらつかないよう、はっきり傾いたときだけ切り替える
+function holdMode(g, prev = "") {
+  const ax = Math.abs(g.x), ay = Math.abs(g.y);
+  if (ax > ay * 1.6) return g.x > 0 ? "cw" : "ccw";
+  if (ay > ax * 1.6) return "";
+  return prev;
+}
 // --- pure:end ---
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search), room = params.get("room");
-let conn = null, sensorOn = false, center = null, gl = null, steer = 0, lastSend = 0;
+let conn = null, sensorOn = false, center = null, gl = null, steer = 0, lastSend = 0, mode = "";
 const buzz = (p) => { try { navigator.vibrate?.(p); } catch { /* 震えない機種もある */ } };
 
 function onMotion(e) {
   const g = e.accelerationIncludingGravity; if (!g || g.x == null) return;
   gl = gl ? { x: gl.x * 0.7 + g.x * 0.3, y: gl.y * 0.7 + g.y * 0.3, z: gl.z * 0.7 + g.z * 0.3 } : { x: g.x, y: g.y, z: g.z };   // 手のふるえをならす
   if (Math.hypot(gl.x, gl.y) < 3) return;          // スマホを寝かせていると傾きが測れない（立てて持つ）
+  // 画面が縦のまま（自動で回っていない）なら、持ち方に合わせて中身を回す
+  const portrait = window.innerHeight >= window.innerWidth;
+  mode = portrait ? holdMode(gl, mode) : "";
+  document.body.classList.toggle("rot-cw", mode === "cw"); document.body.classList.toggle("rot-ccw", mode === "ccw");
   if (center == null) center = upAngle(gl);
   steer = steerFrom(gl, center);
   const now = performance.now();
@@ -129,7 +146,7 @@ function connect() {
   peer.on("error", (e) => setConn(false, e.type === "peer-unavailable" ? "PCが見つかりません（PCの画面を確認）" : e.type === "network" || e.type === "server-error" ? "通信サーバーにつながりません" : `接続エラー: ${e.type}`));
 }
 connect();
-window.ctrlTest = { upAngle, steerFrom, state: () => ({ connected: !!conn?.open, sensorOn, steer, center }) };
+window.ctrlTest = { upAngle, steerFrom, holdMode, state: () => ({ connected: !!conn?.open, sensorOn, steer, center, mode, cls: document.body.className }) };
 </script>
 </body>
 </html>
