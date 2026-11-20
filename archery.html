@@ -116,8 +116,8 @@
           <button class="air" data-players="1" aria-pressed="true">1人</button>
           <button class="air" data-players="2" aria-pressed="false">2人（交互）</button>
           <span style="width:12px"></span>
-          <button class="air" data-arrows="3" aria-pressed="false">3本<small>約1分</small></button>
-          <button class="air" data-arrows="6" aria-pressed="true">6本<small>約2分</small></button>
+          <button class="air" data-arrows="3" aria-pressed="true">3本<small>約1分</small></button>
+          <button class="air" data-arrows="6" aria-pressed="false">6本<small>約2分</small></button>
         </div>
         <div class="pair" id="pair">
           <div class="qr" id="qr"></div>
@@ -177,7 +177,7 @@
     <div class="card">
       <h3>あそびかた</h3>
       <p class="help">
-        <b>構え:</b> PCのカメラに上半身と両手が映るように立ちます。右利きの人は右手にスマホを持ち、左手を的に向けてのばします。<br>
+        <b>構え:</b> PCのカメラに上半身と両手が映るように立ちます。右利きの人は右手にスマホを持ち、左手を胸の前に出します（腕は高く上げなくてOK）。<br>
         <b>狙う:</b> 左手（の指先）を動かすと照準が動きます。<br>
         <b>放つ:</b> スマホのボタンを押すと、画面右のタイミングゲージが上下に動きます。いっぱい（金色の所）で離すと PERFECT で、照準どおりに飛びます。早すぎ・遅すぎると矢が弱くなって下に落ちます。押しながら右手を顔の横まで引くと、気分が出ます。<br>
         <b>コツ:</b> 照準は少し揺れるので、真ん中に来たときにゲージも金色になるよう、押すタイミングを合わせます。風があると矢が流されるので風上を狙います。難しいほどゲージが速くなります。押したまま5秒をこえると腕が疲れて揺れが大きくなります。
@@ -195,10 +195,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const TARGET = { y: 1.3, r: 0.61, ring: 0.061, arrowR: 0.0035 };   // 直径122cmの的（10点の輪の幅 6.1cm）。中心の高さ 1.3m
 const EYE = 1.45, V_FULL = 58, G_ACC = 9.8, WIND_K = 0.16; // 矢を放つ高さ・いっぱいに引いた矢の速さ(m/s)・重力・風の効き
 const LEVELS = {
-  1: { name: "初級", D: 18, wind: [0, 0], gust: 0, sway: 0.01, gauge: 2000 },      // sway: ゲームがわざと加える照準の揺れ(m)、gauge: タイミングゲージが1往復する時間(ms)
-  2: { name: "中級", D: 30, wind: [0.5, 2.0], gust: 0, sway: 0.018, gauge: 1500 },
-  3: { name: "上級", D: 50, wind: [1.5, 4.0], gust: 0.8, sway: 0.028, gauge: 1200 },
-  4: { name: "鬼", D: 70, wind: [3.0, 6.0], gust: 1.4, sway: 0.038, gauge: 950 },
+  1: { name: "初級", D: 18, wind: [0, 0], gust: 0, sway: 0.01, gauge: 2800 },      // sway: ゲームがわざと加える照準の揺れ(m)、gauge: タイミングゲージが1往復する時間(ms)
+  2: { name: "中級", D: 30, wind: [0.5, 2.0], gust: 0, sway: 0.018, gauge: 2100 },
+  3: { name: "上級", D: 50, wind: [1.5, 4.0], gust: 0.8, sway: 0.028, gauge: 1700 },
+  4: { name: "鬼", D: 70, wind: [3.0, 6.0], gust: 1.4, sway: 0.038, gauge: 1300 },
 };
 const arrowSpeed = (power) => 30 + 28 * clamp(power, 0, 1);       // 引きが足りないと遅い → 下に落ちる
 // 的の中心からのずれ(m) → 得点。線に触れていれば高い方の点（矢の太さの分を引く）
@@ -265,9 +265,9 @@ function summarize(list) { return { total: list.reduce((m, a) => m + a.score, 0)
 
 // 狙う手（弓を持つ手）の位置 → 照準（肩幅を1とした単位。的の真ん中が 0,0、右・上がプラス）
 // bow: 狙う手 "l"（右利き）/"r"（左利き）。手首と人差し指の中間を「指先」とする。
-// 肩の真ん中を基準にして、腕を画面の真ん中に向けてのばしたときの手の位置（肩幅 0.35 外側・0.1 上）を「的の真ん中」とする。
+// 肩の真ん中を基準にして、胸の前あたりに手を出した位置（肩幅 0.35 外側・0.4 下）を「的の真ん中」とする（腕を高く上げ続けなくていいように）。
 // ref: なめらかにした肩の位置 {x, y, sw}（なければ今の骨格の肩を使う）。手が見えない・下ろしているときは null
-const AIM_NEUTRAL = { x: 0.35, y: 0.1 };
+const AIM_NEUTRAL = { x: 0.35, y: -0.4 };
 function aimFromHand(s, bow, ref) {
   const ok = (p) => p && Number.isFinite(p.x) && (p.v ?? 1) >= 0.5;
   if (!s) return null;
@@ -276,16 +276,16 @@ function aimFromHand(s, bow, ref) {
   const r = ref || (ok(s.lSh) && ok(s.rSh) ? { x: (s.lSh.x + s.rSh.x) / 2, y: (s.lSh.y + s.rSh.y) / 2, sw: Math.hypot(s.lSh.x - s.rSh.x, s.lSh.y - s.rSh.y) } : null);
   if (!r || !r.sw) return null;
   const P = ok(f) ? { x: (w.x + f.x) / 2, y: (w.y + f.y) / 2 } : w;
-  if (P.y > r.y + 0.9 * r.sw) return null;                                     // 手を下ろしている
+  if (P.y > r.y + 1.3 * r.sw) return null;                                     // 手を下ろしている
   const side = bow === "l" ? -1 : 1;                                          // 鏡写しの画面では、左手は画面の左側
   return { x: (P.x - r.x) / r.sw - side * AIM_NEUTRAL.x, y: (r.y - P.y) / r.sw - AIM_NEUTRAL.y };
 }
 // タイミングゲージ: ボタンを押してからの時間 → 0〜1 を往復（0 から始まり、1往復の半分でいっぱい）
 function gaugeAt(ms, period) { const u = ((Math.max(0, ms) / period) % 1); return 1 - Math.abs(u * 2 - 1); }
-// ゲージの値 → 矢の強さ。金色の所（0.92以上）なら PERFECT（いっぱいに引けた = 照準どおりに飛ぶ）
-const PERFECT = 0.92;
+// ゲージの値 → 矢の強さ。金色の所（0.85以上）なら PERFECT（いっぱいに引けた = 照準どおりに飛ぶ）
+const PERFECT = 0.85;
 const powerFromGauge = (g) => (g >= PERFECT ? 1 : clamp(g, 0, 1));
-const gaugeLabel = (g) => (g >= PERFECT ? "PERFECT!" : g >= 0.75 ? "GOOD" : g >= 0.45 ? "ちょっと弱い" : "弱い…");
+const gaugeLabel = (g) => (g >= PERFECT ? "PERFECT!" : g >= 0.65 ? "GOOD" : g >= 0.4 ? "ちょっと弱い" : "弱い…");
 // 揺れを取るフィルター（One Euro Filter）: 止まっているときは強くなめらかに、動いているときは遅れないように
 function createOneEuro(minCutoff = 1, beta = 0, dCutoff = 1) {
   let x0 = null, dx0 = 0, t0 = 0;
@@ -326,7 +326,7 @@ const $ = (id) => document.getElementById(id);
 const stage = $("stage"), cv = $("cv"), ctx = cv.getContext("2d"), video = $("video");
 const W = 1280, H = 720; cv.width = W; cv.height = H;
 const params = new URLSearchParams(location.search), DEBUG = params.has("debug");
-const S = { hand: "right", players: 1, level: 1, arrows: 6, speed: 1, sound: true, screen: "title" };
+const S = { hand: "right", players: 1, level: 1, arrows: 3, speed: 1, sound: true, screen: "title" };
 const bowHand = () => (S.hand === "right" ? "l" : "r");                       // 狙う手
 const bowWord = () => (S.hand === "right" ? "左手" : "右手"), drawWord = () => (S.hand === "right" ? "右手" : "左手");
 const G = { shots: [[], []], order: [], k: 0, winds: [], phase: "idle", drawing: false, reticle: null, retHist: [], ph: [0, 0, 0, 0], windNow: 0 };
@@ -424,7 +424,7 @@ function doRelease(lat = 0) {
   if (!G.drawing) return;
   const now = performance.now();
   if (now - G.drawT0 < 200) { cancelDraw("押してすぐ離すと射てません。押したまま、ゲージがいっぱい（金色）の所で離してください"); return; }
-  if (!G.reticle) { cancelDraw(`${bowWord()}（狙う手）が見えません。${bowWord()}を的に向けてのばしてください`); return; }
+  if (!G.reticle) { cancelDraw(`${bowWord()}（狙う手）が見えません。${bowWord()}を胸の前に出してください`); return; }
   const g = gaugeAt(now - G.drawT0 - lat, L().gauge);
   G.lastGauge = { g, label: gaugeLabel(g), at: now };
   release(powerFromGauge(g));
@@ -684,7 +684,7 @@ function step(now) {
     if (G.drawing) { const pf = gaugeNow(now) >= PERFECT; if (pf && !G.fullPlayed) { Snd.full(); sendFx("full"); } G.fullPlayed = pf; }
     if (G.noteUntil && now < G.noteUntil) { /* 直前の注意を表示中 */ }
     else if (!cam.skel) say("上半身と両手がカメラに映るように立ってください");
-    else if (!G.reticle) say(`${bowWord()}を的に向けてのばしてください（${bowWord()}で狙います）`);
+    else if (!G.reticle) say(`${bowWord()}を胸の前に出してください（${bowWord()}で狙います）`);
     else if (!G.drawing) say(`${bowWord()}で狙い、スマホのボタンを押すとゲージが動く → 金色（いっぱい）の所で離すと発射${phone.conns.length ? "" : "（スペースキーでも代わりにできます）"}`);
     else say("");
   } else if (G.phase === "flight") {

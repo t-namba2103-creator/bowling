@@ -53,7 +53,7 @@ let holding = false, conn = null, canDraw = false, hand = "right";
 const buzz = (p) => { try { navigator.vibrate?.(p); } catch { /* 震えない機種もある（iPhone など） */ } };
 function updateText() {
   const bow = hand === "right" ? "左手" : "右手";
-  $("holdText").innerHTML = `押すとPCの画面のゲージが動く<br>金色（いっぱい）の所で離すと発射<small>${bow}を的に向けてのばして狙う ・ 押しながら顔の横まで引くと気分が出ます</small>`;
+  $("holdText").innerHTML = `押すとPCの画面のゲージが動く<br>金色（いっぱい）の所で離すと発射<small>${bow}を胸の前に出して狙う ・ 押しながら顔の横まで引くと気分が出ます</small>`;
 }
 
 // ---- 弦をつかむ（押している間）・放す（離す） ----
